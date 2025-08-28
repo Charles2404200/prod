@@ -1,0 +1,107 @@
+pipeline {
+    agent any
+    environment {
+        APP_NAME = 'rmit-store'
+        // Use a more descriptive and unique tag.
+        // A combination of branch name and a unique identifier is a good practice.
+        // This example uses a short Git commit hash, which is ideal for traceability.
+        GIT_COMMIT_SHORT = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
+        IMG_TAG = "${GIT_COMMIT_SHORT}"
+        FRONTEND_IMAGE = "ghcr.io/yourorg/rmit-store-frontend"
+        BACKEND_IMAGE  = "ghcr.io/yourorg/rmit-store-backend"
+        MAIL_TO = "benbach2001@gmail.com"
+        // Define paths to Dockerfiles and Compose files for clarity and reuse
+        FRONTEND_DOCKERFILE = "infra/ansible/docker/Dockerfile.client"
+        BACKEND_DOCKERFILE = "infra/ansible/docker/Dockerfile.server"
+        DOCKER_COMPOSE_FILE = "infra/compose/staging/docker-compose.yml"
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                // Checkout the specific branch from your repository
+                git url: 'https://github.com/Charles2404200/prod', branch: 'main'
+            }
+        }
+
+        stage('Build Docker Images') {
+            steps {
+                script {
+                    sh "docker build -t ${FRONTEND_IMAGE}:${IMG_TAG} -f ${FRONTEND_DOCKERFILE} ."
+                    sh "docker build -t ${BACKEND_IMAGE}:${IMG_TAG} -f ${BACKEND_DOCKERFILE} ."
+                    // Clean up unused images to save disk space
+                    sh "docker image prune -f"
+                }
+            }
+        }
+
+        stage('Run Unit Tests') {
+            steps {
+                script {
+                    // Run tests inside Docker containers to ensure a clean and consistent environment
+                    sh "docker run --rm -v \$(pwd)/client:/app -w /app node:18-alpine sh -c \"npm install && npm test\""
+                    sh "docker run --rm -v \$(pwd)/server:/app -w /app node:18-alpine sh -c \"npm install && npm test\""
+                }
+            }
+        }
+
+        stage('Run Integration Tests') {
+            steps {
+                script {
+                    // Use Docker Compose to bring up the full stack for integration testing
+                    sh "docker-compose -f ${DOCKER_COMPOSE_FILE} up --build -d"
+                    // Wait for services to be ready
+                    sh "sleep 20"
+                    // Execute integration tests from within the backend container
+                    sh "docker exec \$(docker-compose -f ${DOCKER_COMPOSE_FILE} ps -q backend) npm run test:integration"
+                    // Clean up containers after tests are complete
+                    sh "docker-compose -f ${DOCKER_COMPOSE_FILE} down"
+                }
+            }
+        }
+
+        stage('Deploy STAGING (Ansible)') {
+            steps {
+                // Deploy to the staging environment using Ansible
+                sh """
+                    ansible-playbook -i infra/ansible/inventory.ini infra/ansible/site.yml \\
+                        -l staging -t app_deploy \\
+                        -e image_tag=${IMG_TAG} \\
+                        -e frontend_image=${FRONTEND_IMAGE} \\
+                        -e backend_image=${BACKEND_IMAGE}
+                """
+            }
+        }
+
+        stage('Promote PROD (Blue/Green)') {
+            // This stage only runs when a push is made to the 'main' branch
+            when { branch 'main' }
+            steps {
+                // Requires manual approval before deploying to production
+                input message: "Deploy to PROD?", ok: "Deploy"
+                sh """
+                    ansible-playbook -i infra/ansible/inventory.ini infra/ansible/site.yml \\
+                        -l prod -t app_deploy \\
+                        -e color=green \\
+                        -e image_tag=${IMG_TAG} \\
+                        -e frontend_image=${FRONTEND_IMAGE} \\
+                        -e backend_image=${BACKEND_IMAGE}
+                """
+            }
+        }
+    }
+
+    post {
+        // Send email notifications for build success or failure
+        success {
+            mail to: env.MAIL_TO,
+                 subject: "[SUCCESS] ${APP_NAME} build ${IMG_TAG}",
+                 body: "The pipeline for ${APP_NAME} finished successfully. Details: ${env.BUILD_URL}"
+        }
+        failure {
+            mail to: env.MAIL_TO,
+                 subject: "[FAIL] ${APP_NAME} build ${IMG_TAG}",
+                 body: "The pipeline for ${APP_NAME} failed. Check logs at: ${env.BUILD_URL}"
+        }
+    }
+}
