@@ -1,0 +1,29 @@
+---
+- hosts: all
+  become: true
+  roles:
+    - docker
+
+- hosts: staging:prod
+  become: true
+  roles:
+    - node_exporter
+    - cadvisor
+    - nginx_exporter
+
+- hosts: monitoring
+  become: true
+  roles:
+    - monitoring_stack
+
+- hosts: staging
+  become: true
+  roles:
+    - { role: nginx }
+    - { role: app_deploy }
+
+- hosts: prod
+  become: true
+  roles:
+    - { role: nginx }
+    - { role: app_deploy }

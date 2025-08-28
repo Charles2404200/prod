@@ -1,0 +1,11 @@
+frontend_image: "yourdockeruser/rmit-store-frontend"
+backend_image: "yourdockeruser/rmit-store-backend"
+image_tag: "latest"
+
+frontend_http_port: 80
+backend_staging_port: 3000
+
+deploy_root: "/opt/rmit"
+frontend_root_staging: "/var/www/frontend-staging"
+
+staging_domain: "98.83.164.144"

@@ -1,0 +1,81 @@
+pipeline {
+  agent any
+  environment {
+    APP_NAME = 'rmit-store'
+    GIT_COMMIT_SHORT = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
+    IMG_TAG = "${GIT_COMMIT_SHORT}"
+    FRONTEND_IMAGE = "ghcr.io/yourorg/rmit-store-frontend"
+    BACKEND_IMAGE  = "ghcr.io/yourorg/rmit-store-backend"
+    MAIL_TO = "devops@example.com"
+  }
+  options { timestamps() }
+
+  stages {
+    stage('Checkout') { steps { checkout scm } }
+
+    stage('Build images') {
+      steps {
+        sh """
+          docker build -t ${BACKEND_IMAGE}:${IMG_TAG} -f Dockerfile.backend .
+          docker build -t ${FRONTEND_IMAGE}:${IMG_TAG} -f Dockerfile.frontend .
+          docker image prune -f
+        """
+      }
+    }
+
+    stage('Unit tests (server)') {
+      steps {
+        sh """
+          cd server && npm ci && npm test
+        """
+      }
+    }
+
+    stage('Integration smoke (compose)') {
+      steps {
+        sh """
+          # minimal smoke: run backend with test mongo if you add a test compose
+          echo 'skipping detailed integration for starter'
+        """
+      }
+    }
+
+    stage('Deploy STAGING (Ansible)') {
+      steps {
+        sh """
+          ansible-playbook -i infra/ansible/inventory.ini infra/ansible/site.yml \
+            -l staging -t app_deploy \
+            -e image_tag=${IMG_TAG} \
+            -e frontend_image=${FRONTEND_IMAGE} \
+            -e backend_image=${BACKEND_IMAGE}
+        """
+      }
+    }
+
+    stage('UI tests vs STAGING') {
+      steps {
+        sh "echo 'Add Playwright/Cypress here (PW_BASE_URL=http://staging.example.com)'"
+      }
+    }
+
+    stage('Promote PROD (Blue/Green)') {
+      when { branch 'main' }
+      steps {
+        input message: "Deploy to PROD?", ok: "Deploy"
+        sh """
+          ansible-playbook -i infra/ansible/inventory.ini infra/ansible/site.yml \
+            -l prod -t app_deploy \
+            -e color=green \
+            -e image_tag=${IMG_TAG} \
+            -e frontend_image=${FRONTEND_IMAGE} \
+            -e backend_image=${BACKEND_IMAGE}
+        """
+      }
+    }
+  }
+
+  post {
+    success { mail to: env.MAIL_TO, subject: "[SUCCESS] ${APP_NAME} ${IMG_TAG}", body: "Pipeline OK" }
+    failure { mail to: env.MAIL_TO, subject: "[FAIL] ${APP_NAME} ${IMG_TAG}", body: "Check Jenkins logs" }
+  }
+}

@@ -77,17 +77,33 @@ const config = {
   ],
   devServer: {
     // Configuration for webpack-dev-server
-    port: 8080,
-    host: '0.0.0.0', // Listen on all network interfaces
-    open: true,
-    inline: true,
-    compress: true,
-    hot: true,
-    disableHostCheck: true,
-    historyApiFallback: true
-  },
-  // Enable source maps for easier debugging
-  devtool: 'eval-source-map'
+  //   port: 8080,
+  //   host: '0.0.0.0', // Listen on all network interfaces
+  //   open: true,
+  //   inline: true,
+  //   compress: true,
+  //   hot: true,
+  //   disableHostCheck: true,
+  //   historyApiFallback: true
+  // },
+  // // Enable source maps for easier debugging
+  // devtool: 'eval-source-map'
+  port: 8080,
+  host: '0.0.0.0',
+  open: true,
+  inline: true,
+  compress: true,
+  hot: true,
+  disableHostCheck: true,
+  historyApiFallback: true,
+
+  proxy: {
+    '/api': {
+      target: 'http://localhost:5000',
+      changeOrigin: true,
+    }
+  }
+  }
 };
 
 // Merge common configuration with development-specific configuration

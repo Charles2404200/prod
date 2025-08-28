@@ -41,7 +41,7 @@ setupDB();
 require('./config/passport')(app);
 
 // Use the defined routes for handling requests
-app.use(routes);
+app.use('/',routes);
 
 // Start the server and listen on the specified port
 const server = app.listen(port, '0.0.0.0', () => {
