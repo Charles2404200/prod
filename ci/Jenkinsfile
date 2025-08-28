@@ -11,9 +11,9 @@ pipeline {
         BACKEND_IMAGE  = "ghcr.io/yourorg/rmit-store-backend"
         MAIL_TO = "benbach2001@gmail.com"
         // Define paths to Dockerfiles and Compose files for clarity and reuse
-        FRONTEND_DOCKERFILE = "./Dockerfile.frontend"
-        BACKEND_DOCKERFILE = "./Dockerfile.backend"
-        DOCKER_COMPOSE_FILE = "infra/compose/staging/docker-compose.yml"
+        FRONTEND_DOCKERFILE = "ci/Dockerfile.frontend"
+        BACKEND_DOCKERFILE = "ci/Dockerfile.backend"
+        DOCKER_COMPOSE_FILE = "compose/staging/docker-compose.yml"
     }
 
     stages {
