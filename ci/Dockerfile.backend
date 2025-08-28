@@ -1,0 +1,15 @@
+FROM node:18-alpine
+
+#working directory
+WORKDIR /app
+#copy package.json for caching
+COPY server/package*.json ./server/
+#go into server folder and install dependencies
+WORKDIR /app/server
+RUN npm ci
+#copy the rest of the backend code
+COPY server/ .
+#expose the port your backend listens on (change if you guys want/need to)
+EXPOSE 5000
+#start backend
+CMD ["npm", "start"]
