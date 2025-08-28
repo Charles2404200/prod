@@ -1,0 +1,27 @@
+---
+- name: Install Nginx
+  package:
+    name: nginx
+    state: present
+
+- name: Create front roots
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: '0755'
+  loop:
+    - "{{ frontend_root_blue }}"
+    - "{{ frontend_root_green }}"
+    - "{{ frontend_root_staging }}"
+
+- name: Deploy Nginx vhost
+  template:
+    src: "rmit.conf.j2"
+    dest: "/etc/nginx/conf.d/rmit.conf"
+    mode: '0644'
+
+- name: Enable & restart Nginx
+  service:
+    name: nginx
+    state: restarted
+    enabled: true
