@@ -58,7 +58,7 @@
   delay: 2
   until: health.status == 200
 
-- name: "Reload Nginx (prod: switch take effect)"
+- name: Reload Nginx (prod: switch take effect)
   when: env == 'prod'
   service:
     name: nginx

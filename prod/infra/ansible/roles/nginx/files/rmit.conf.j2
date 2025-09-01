@@ -1,0 +1,46 @@
+# STAGING (single stack)
+{% if env == 'staging' %}
+server {
+  listen {{ frontend_http_port }};
+  server_name {{ frontend_domain }};
+
+  root {{ frontend_root_staging }};
+  index index.html;
+
+  location /api/ {
+    proxy_pass http://127.0.0.1:{{ backend_staging_port }}/api/;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+  }
+
+  location / {
+    try_files $uri /index.html;
+  }
+}
+{% else %}
+# PROD Blue/Green
+upstream rmit_backend {
+  server 127.0.0.1:{{ backend_blue_port }}  {% if color == 'blue' %}weight=10{% else %}weight=1{% endif %};
+  server 127.0.0.1:{{ backend_green_port }} {% if color == 'green' %}weight=10{% else %}weight=1{% endif %};
+}
+
+server {
+  listen {{ frontend_http_port }};
+  server_name {{ frontend_domain }};
+
+  # Serve the active color's frontend
+  {% set active_root = (color == 'blue') | ternary(frontend_root_blue, frontend_root_green) %}
+  root {{ active_root }};
+  index index.html;
+
+  location /api/ {
+    proxy_pass http://rmit_backend/api/;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+  }
+
+  location / {
+    try_files $uri /index.html;
+  }
+}
+{% endif %}

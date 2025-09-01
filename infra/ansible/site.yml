@@ -21,7 +21,6 @@
   roles:
     - { role: nginx }
     - { role: app_deploy }
-    - { role: prometheus, tags: ["prometheus"] }
 
 - hosts: prod
   become: true
