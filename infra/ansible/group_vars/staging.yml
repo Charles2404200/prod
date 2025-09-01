@@ -1,0 +1,3 @@
+backend_host: "stg-back"
+backend_metrics_port: 9100
+backend_app_port: 8080    

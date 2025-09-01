@@ -1,0 +1,36 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  # Backend application metrics (if backend provides /metrics)
+  - job_name: 'backend'
+    static_configs:
+      - targets:
+          {% for host in groups['staging'] %}
+          - "{{ hostvars[host].ansible_host }}:3000"   # if BE is on port 3000
+          {% endfor %}
+
+  # Node Exporter (system metrics)
+  - job_name: 'node'
+    static_configs:
+      - targets:
+          {% for host in groups['staging'] %}
+          - "{{ hostvars[host].ansible_host }}:9100"
+          {% endfor %}
+
+  # cAdvisor (container metrics)
+  - job_name: 'cadvisor'
+    static_configs:
+      - targets:
+          {% for host in groups['staging'] %}
+          - "{{ hostvars[host].ansible_host }}:8081"
+          {% endfor %}
+
+  # Nginx exporter
+  - job_name: 'nginx'
+    static_configs:
+      - targets:
+          {% for host in groups['staging'] %}
+          - "{{ hostvars[host].ansible_host }}:9113"
+          {% endfor %}

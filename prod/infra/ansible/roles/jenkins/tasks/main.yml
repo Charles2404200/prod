@@ -1,7 +1,0 @@
----
-# optional role; skeleton
-- name: Install Java (for Jenkins)
-  package:
-    name: java-17-amazon-corretto-headless
-    state: present
-  ignore_errors: true
