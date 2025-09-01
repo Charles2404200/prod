@@ -1,0 +1,9 @@
+- hosts: staging
+  become: true
+  vars:
+    containers:
+      - rmit-store-frontend-1
+      - rmit-store-backend-1
+      - rmit-store-mongo-1
+  roles:
+    - healthcheck

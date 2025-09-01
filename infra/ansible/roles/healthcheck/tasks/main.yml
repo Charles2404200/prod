@@ -1,0 +1,26 @@
+---
+- name: Set container list
+  set_fact:
+    containers:
+      - rmit-store-frontend-1
+      - rmit-store-backend-1
+      - rmit-store-mongo-1
+
+- name: Get container info
+  docker_container_info:
+    name: "{{ item }}"
+  loop: "{{ containers }}"
+  register: container_info
+  ignore_errors: yes
+
+- name: Fail if container is not running
+  fail:
+    msg: "Container {{ item.container.Name }} is not running"
+  loop: "{{ container_info.results }}"
+  when: item.container is defined and item.container.State.Running != true
+
+- name: Debug container status
+  debug:
+    msg: "Container {{ item.container.Name }} is running"
+  loop: "{{ container_info.results }}"
+  when: item.container is defined and item.container.State.Running == true
