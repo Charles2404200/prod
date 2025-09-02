@@ -4,3 +4,6 @@ docker compose up --build -d
 
 turns off docker
 docker compose down
+
+deletes cached build
+docker builder prune -a
