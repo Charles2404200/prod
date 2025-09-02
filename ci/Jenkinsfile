@@ -198,30 +198,30 @@ pipeline {
                 script {
                     // Check if Ansible is available and install it if not
                     sh '''
-        if ! command -v ansible-playbook &> /dev/null; then
-        echo "Ansible not found. Installing...";
-        if command -v apt-get &> /dev/null; then
-        sudo apt-get update && sudo apt-get install -y ansible;
-        elif command -v yum &> /dev/null; then
-        sudo yum install -y ansible;
-        else
-        echo "Error: Neither apt-get nor yum found. Cannot install Ansible.";
-        exit 1;
-        fi
-        fi
-        '''
+                    if ! command -v ansible-playbook &> /dev/null; then
+                    echo "Ansible not found. Installing...";
+                    if command -v apt-get &> /dev/null; then
+                    sudo apt-get update && sudo apt-get install -y ansible;
+                    elif command -v yum &> /dev/null; then
+                    sudo yum install -y ansible;
+                    else
+                    echo "Error: Neither apt-get nor yum found. Cannot install Ansible.";
+                    exit 1;
+                    fi
+                    fi
+                    '''
 
                     // Install collections from the requirements file to the local workspace
                     sh 'ansible-galaxy collection install -r infra/ansible/requirements.yml -p ./collections'
 
                     // Deploy to the staging environment using Ansible
                     sh """
-                ansible-playbook -i infra/ansible/inventory.ini infra/ansible/site.yml \\
-                -l staging -t app_deploy \\
-                -e image_tag=${IMG_TAG} \\
-                -e frontend_image=${FRONTEND_IMAGE} \\
-                -e backend_image=${BACKEND_IMAGE}
-                """
+                    ansible-playbook -i infra/ansible/inventory.ini infra/ansible/site.yml \\
+                    -l staging -t app_deploy \\
+                    -e image_tag=${IMG_TAG} \\
+                    -e frontend_image=${FRONTEND_IMAGE} \\
+                    -e backend_image=${BACKEND_IMAGE}
+                    """
                 }
             }
         }
