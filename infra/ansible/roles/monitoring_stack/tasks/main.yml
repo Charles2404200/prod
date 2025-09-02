@@ -30,7 +30,7 @@
     recursive: yes
 
 - name: Bring up monitoring
-  community.docker.docker_compose_v2:
+  community.docker.docker_compose:
     project_src: /opt/monitoring
     state: present
     pull: always
