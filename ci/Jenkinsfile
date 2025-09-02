@@ -171,14 +171,26 @@ pipeline {
 
         stage('Deploy STAGING (Ansible)') {
             steps {
-                // Deploy to the staging environment using Ansible
-                sh """
-                    ansible-playbook -i infra/ansible/inventory.ini infra/ansible/site.yml \\
-                        -l staging -t app_deploy \\
-                        -e image_tag=${IMG_TAG} \\
-                        -e frontend_image=${FRONTEND_IMAGE} \\
-                        -e backend_image=${BACKEND_IMAGE}
-                """
+                script { 
+                    // Check if Ansible is available and install it if not sh ''' if ! command -v ansible-playbook &> /dev/null; then echo "Ansible not found. Installing..."; if command -v apt-get &> /dev/null; then sudo apt-get update && sudo apt-get install -y ansible; elif command -v yum &> /dev/null; then sudo yum install -y ansible; else echo "Error: Neither apt-get nor yum found. Cannot install Ansible."; exit 1; fi fi '''
+
+                    // Check if the Docker community collection is installed and install it if not
+                    sh '''
+                    if ! ansible-galaxy collection list | grep community.docker &> /dev/null; then
+                        echo "Ansible Docker collection not found. Installing...";
+                        ansible-galaxy collection install community.docker
+                    fi
+                    '''
+
+                    // Deploy to the staging environment using Ansible
+                    sh """
+                        ansible-playbook -i infra/ansible/inventory.ini infra/ansible/site.yml \\
+                            -l staging -t app_deploy \\
+                            -e image_tag=${IMG_TAG} \\
+                            -e frontend_image=${FRONTEND_IMAGE} \\
+                            -e backend_image=${BACKEND_IMAGE}
+                    """
+                }
             }
         }
 
