@@ -6,7 +6,9 @@
     "dev": "nodemon",
     "start": "cross-env NODE_ENV=production node index.js",
     "seed:db": "node utils/seed.js",
-    "test": "echo 'No server tests specified yet' && exit 0"
+    "test": "echo 'No server tests specified yet' && exit 0",
+    "test:unit": "echo 'Running unit tests...'",
+    "test:integration": "echo 'Running integration tests...'"
   },
   "dependencies": {
     "@faker-js/faker": "^9.9.0",

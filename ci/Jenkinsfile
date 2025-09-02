@@ -113,15 +113,15 @@ pipeline {
     environment {
         APP_NAME = 'rmit-store'
         // Use a short Git commit hash for a unique and traceable image tag
-        GIT_COMMIT_SHORT = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
+        GIT_COMMIT_SHORT = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
         IMG_TAG = "${GIT_COMMIT_SHORT}"
-        FRONTEND_IMAGE = "ghcr.io/yourorg/rmit-store-frontend"
-        BACKEND_IMAGE  = "ghcr.io/yourorg/rmit-store-backend"
-        MAIL_TO = "benbach2001@gmail.com"
+        FRONTEND_IMAGE = 'ghcr.io/yourorg/rmit-store-frontend'
+        BACKEND_IMAGE  = 'ghcr.io/yourorg/rmit-store-backend'
+        MAIL_TO = 'benbach2001@gmail.com'
         // Define paths to Dockerfiles and Compose files for clarity and reuse
-        FRONTEND_DOCKERFILE = "ci/Dockerfile.frontend"
-        BACKEND_DOCKERFILE = "ci/Dockerfile.backend"
-        DOCKER_COMPOSE_FILE = "compose/staging/docker-compose.yml"
+        FRONTEND_DOCKERFILE = 'ci/Dockerfile.frontend'
+        BACKEND_DOCKERFILE = 'ci/Dockerfile.backend'
+        DOCKER_COMPOSE_FILE = 'compose/staging/docker-compose.yml'
     }
 
     stages {
@@ -139,7 +139,7 @@ pipeline {
                     sh "docker build -t ${FRONTEND_IMAGE}:${IMG_TAG} -f ${FRONTEND_DOCKERFILE} . --progress=plain"
                     sh "docker build -t ${BACKEND_IMAGE}:${IMG_TAG} -f ${BACKEND_DOCKERFILE} . --progress=plain"
                     // Clean up unused images to save disk space
-                    sh "docker image prune -f"
+                    sh 'docker image prune -f'
                 }
             }
         }
@@ -160,7 +160,7 @@ pipeline {
                     // Use Docker Compose to bring up the full stack for integration testing
                     sh "docker-compose -f ${DOCKER_COMPOSE_FILE} up --build -d"
                     // Wait for services to be ready
-                    sh "sleep 20"
+                    sh 'sleep 20'
                     // Execute integration tests from within the backend container
                     sh "docker exec \$(docker-compose -f ${DOCKER_COMPOSE_FILE} ps -q backend) npm run test:integration"
                     // Clean up containers after tests are complete
@@ -169,16 +169,60 @@ pipeline {
             }
         }
 
+        // stage('Deploy STAGING (Ansible)') {
+        //     steps {
+        //         script {
+        //             // Check if Ansible is available and install it if not sh ''' if ! command -v ansible-playbook &> /dev/null; then echo "Ansible not found. Installing..."; if command -v apt-get &> /dev/null; then sudo apt-get update && sudo apt-get install -y ansible; elif command -v yum &> /dev/null; then sudo yum install -y ansible; else echo "Error: Neither apt-get nor yum found. Cannot install Ansible."; exit 1; fi fi '''
+
+        //             // Check if the Docker community collection is installed and install it if not
+        //             sh '''
+        //             if ! ansible-galaxy collection list | grep community.docker &> /dev/null; then
+        //                 echo "Ansible Docker collection not found. Installing...";
+        //                 ansible-galaxy collection install community.docker
+        //             fi
+        //             '''
+
+        //             // Deploy to the staging environment using Ansible
+        //             sh """
+        //                 ansible-playbook -i infra/ansible/inventory.ini infra/ansible/site.yml \\
+        //                     -l staging -t app_deploy \\
+        //                     -e image_tag=${IMG_TAG} \\
+        //                     -e frontend_image=${FRONTEND_IMAGE} \\
+        //                     -e backend_image=${BACKEND_IMAGE}
+        //             """
+        //         }
+        //     }
+        // }
         stage('Deploy STAGING (Ansible)') {
             steps {
-                // Deploy to the staging environment using Ansible
-                sh """
-                    ansible-playbook -i infra/ansible/inventory.ini infra/ansible/site.yml \\
-                        -l staging -t app_deploy \\
-                        -e image_tag=${IMG_TAG} \\
-                        -e frontend_image=${FRONTEND_IMAGE} \\
-                        -e backend_image=${BACKEND_IMAGE}
+                script {
+                    // Check if Ansible is available and install it if not
+                    sh '''
+        if ! command -v ansible-playbook &> /dev/null; then
+        echo "Ansible not found. Installing...";
+        if command -v apt-get &> /dev/null; then
+        sudo apt-get update && sudo apt-get install -y ansible;
+        elif command -v yum &> /dev/null; then
+        sudo yum install -y ansible;
+        else
+        echo "Error: Neither apt-get nor yum found. Cannot install Ansible.";
+        exit 1;
+        fi
+        fi
+        '''
+
+                    // Install collections from the requirements file to the local workspace
+                    sh 'ansible-galaxy collection install -r infra/ansible/requirements.yml -p ./collections'
+
+                    // Deploy to the staging environment using Ansible
+                    sh """
+                ansible-playbook -i infra/ansible/inventory.ini infra/ansible/site.yml \\
+                -l staging -t app_deploy \\
+                -e image_tag=${IMG_TAG} \\
+                -e frontend_image=${FRONTEND_IMAGE} \\
+                -e backend_image=${BACKEND_IMAGE}
                 """
+                }
             }
         }
 
@@ -187,7 +231,7 @@ pipeline {
             when { branch 'main' }
             steps {
                 // Requires manual approval before deploying to production
-                input message: "Deploy to PROD?", ok: "Deploy"
+                input message: 'Deploy to PROD?', ok: 'Deploy'
                 sh """
                     ansible-playbook -i infra/ansible/inventory.ini infra/ansible/site.yml \\
                         -l prod -t app_deploy \\
