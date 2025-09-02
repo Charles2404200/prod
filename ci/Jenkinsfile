@@ -169,30 +169,57 @@ pipeline {
             }   
         }
 
-        stage('Deploy STAGING (Ansible)') {
-            steps {
-                script { 
-                    // Check if Ansible is available and install it if not sh ''' if ! command -v ansible-playbook &> /dev/null; then echo "Ansible not found. Installing..."; if command -v apt-get &> /dev/null; then sudo apt-get update && sudo apt-get install -y ansible; elif command -v yum &> /dev/null; then sudo yum install -y ansible; else echo "Error: Neither apt-get nor yum found. Cannot install Ansible."; exit 1; fi fi '''
+        // stage('Deploy STAGING (Ansible)') {
+        //     steps {
+        //         script { 
+        //             // Check if Ansible is available and install it if not sh ''' if ! command -v ansible-playbook &> /dev/null; then echo "Ansible not found. Installing..."; if command -v apt-get &> /dev/null; then sudo apt-get update && sudo apt-get install -y ansible; elif command -v yum &> /dev/null; then sudo yum install -y ansible; else echo "Error: Neither apt-get nor yum found. Cannot install Ansible."; exit 1; fi fi '''
 
-                    // Check if the Docker community collection is installed and install it if not
-                    sh '''
-                    if ! ansible-galaxy collection list | grep community.docker &> /dev/null; then
-                        echo "Ansible Docker collection not found. Installing...";
-                        ansible-galaxy collection install community.docker
-                    fi
-                    '''
+        //             // Check if the Docker community collection is installed and install it if not
+        //             sh '''
+        //             if ! ansible-galaxy collection list | grep community.docker &> /dev/null; then
+        //                 echo "Ansible Docker collection not found. Installing...";
+        //                 ansible-galaxy collection install community.docker
+        //             fi
+        //             '''
 
-                    // Deploy to the staging environment using Ansible
-                    sh """
-                        ansible-playbook -i infra/ansible/inventory.ini infra/ansible/site.yml \\
-                            -l staging -t app_deploy \\
-                            -e image_tag=${IMG_TAG} \\
-                            -e frontend_image=${FRONTEND_IMAGE} \\
-                            -e backend_image=${BACKEND_IMAGE}
-                    """
-                }
-            }
+        //             // Deploy to the staging environment using Ansible
+        //             sh """
+        //                 ansible-playbook -i infra/ansible/inventory.ini infra/ansible/site.yml \\
+        //                     -l staging -t app_deploy \\
+        //                     -e image_tag=${IMG_TAG} \\
+        //                     -e frontend_image=${FRONTEND_IMAGE} \\
+        //                     -e backend_image=${BACKEND_IMAGE}
+        //             """
+        //         }
+        //     }
+        // }
+
+     stage('Deploy STAGING (Ansible)') {
+        steps {
+             script {
+             // Check if Ansible is available and install it if not
+                sh '''
+                if ! command -v ansible-playbook &> /dev/null; then
+                echo "Ansible not found. Installing...";
+                if command -v apt-get &> /dev/null; then
+                sudo apt-get update && sudo apt-get install -y ansible;
+                elif command -v yum &> /dev/null; then
+                sudo yum install -y ansible;
+                else
+                echo "Error: Neither apt-get nor yum found. Cannot install Ansible.";
+                exit 1;
+                fi
+                fi
+                '''
+
+            // Install collections from the requirements file to the local workspace
+            sh 'ansible-galaxy collection install -r infra/ansible/requirements.yml -p ./collections'
+
+            // Now run the playbook
+            sh "ansible-playbook -i infra/ansible/inventory.ini infra/ansible/site.yml -l staging -t app_deploy -e image_tag=4947c16 -e frontend_image=ghcr.io/yourorg/rmit-store-frontend -e backend_image=ghcr.io/yourorg/rmit-store-backend"
         }
+    }
+}
 
         stage('Promote PROD (Blue/Green)') {
             // This stage only runs when a push is made to the 'main' branch
