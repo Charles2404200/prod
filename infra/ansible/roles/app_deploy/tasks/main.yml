@@ -35,7 +35,7 @@
       BACKEND_GREEN_PORT={{ backend_green_port }}
 
 - name: Deploy stack
-  community.docker.docker_compose_v2:
+  community.docker.docker_compose:
     project_src: "{{ deploy_root }}"
     files:
       - "{{ deploy_root }}/docker-compose.yml"
