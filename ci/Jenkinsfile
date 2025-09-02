@@ -166,7 +166,7 @@ pipeline {
                     // Clean up containers after tests are complete
                     sh "docker-compose -f ${DOCKER_COMPOSE_FILE} down"
                 }
-            }
+            }   
         }
 
         stage('Deploy STAGING (Ansible)') {
