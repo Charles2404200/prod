@@ -1,6 +1,0 @@
----
-env: "prod"
-frontend_domain: "{{ prod_domain }}"
-mongo_uri: "mongodb://{{ hostvars['prod-db'].ansible_host }}:27017/rmit_database"
-compose_file_blue: "{{ playbook_dir }}/../compose/prod/docker-compose.blue.yml"
-compose_file_green: "{{ playbook_dir }}/../compose/prod/docker-compose.green.yml"
