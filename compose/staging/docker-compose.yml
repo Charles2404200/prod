@@ -25,7 +25,7 @@ services:
       # context: .
       # context: ../../  # This goes up two directories to the project root
       # dockerfile: ci/Dockerfile.backend
-    image: ghcr.io/BennyBach1002/rmit-store-backend:latest
+    image: ghcr.io/benbach2001/rmit-store-backend:latest
     ports:
       - "5000:5000"
     environment:
@@ -43,7 +43,7 @@ services:
       # context: .
       # context: ../../  # This goes up two directories to the project root
       # dockerfile: ci/Dockerfile.frontend
-    image: ghcr.io/BennyBach1002/rmit-store-frontend:latest
+    image: ghcr.io/benbach2001/rmit-store-frontend:latest
     ports:
       - "3000:80"
     environment:
