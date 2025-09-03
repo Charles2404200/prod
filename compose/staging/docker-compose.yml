@@ -21,10 +21,11 @@ version: "3.9"
 
 services:
   backend:
-    build:
+    #build:
       # context: .
-      context: ../../  # This goes up two directories to the project root
-      dockerfile: ci/Dockerfile.backend
+      # context: ../../  # This goes up two directories to the project root
+      # dockerfile: ci/Dockerfile.backend
+    image: ghcr.io/charles2404200/rmit-store-backend:latest
     ports:
       - "5000:5000"
     environment:
@@ -38,10 +39,11 @@ services:
       - mongo
 
   frontend:
-    build:
+    #build:
       # context: .
-      context: ../../  # This goes up two directories to the project root
-      dockerfile: ci/Dockerfile.frontend
+      # context: ../../  # This goes up two directories to the project root
+      # dockerfile: ci/Dockerfile.frontend
+    image: ghcr.io/charles2404200/rmit-store-frontend:latest
     ports:
       - "3000:80"
     environment:
