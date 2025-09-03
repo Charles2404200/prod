@@ -1,0 +1,9 @@
+---
+- name: Deploy MongoDB container
+  community.docker.docker_container:
+    name: rmit-mongodb
+    image: mongo:latest
+    state: started
+    ports:
+      - "27017:27017"
+    restart_policy: always

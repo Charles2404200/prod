@@ -4,6 +4,12 @@
     name: [curl, git, tar]
     state: present
 
+- name: Install Ansible on the host
+  package:
+    name: ansible
+    state: present
+  when: ansible_host == 'your_jenkins_ip_address'
+
 - name: Install Docker engine
   shell: |
     if ! command -v docker >/dev/null; then
@@ -14,7 +20,7 @@
 - name: Enable & start Docker
   service: { name: docker, state: started, enabled: true }
 
-- name: Install docker compose v2
+- name: Install docker compose
   get_url:
     url: "https://github.com/docker/compose/releases/download/{{ docker_compose_version }}/docker-compose-linux-x86_64"
     dest: /usr/local/bin/docker-compose

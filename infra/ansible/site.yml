@@ -1,29 +1,74 @@
 ---
+# Install docker on all server
 - hosts: all
   become: true
   roles:
     - docker
+  tags:
+    - all_servers
 
+# Install Ansible and AWS on Jenkins
+- hosts: jenkins
+  become: true
+  roles:
+    - jenkins
+  tags:
+    - jenkins_setup
+
+# Install monitoring agent on staging and prod
 - hosts: staging:prod
   become: true
   roles:
     - node_exporter
     - cadvisor
     - nginx_exporter
+  tags:
+    - monitoring_agents
 
+# Install monitoring stack
 - hosts: monitoring
   become: true
   roles:
     - monitoring_stack
+  tags:
+    - monitoring_stack
 
+# Distribute Nginx and frontend(staging)
 - hosts: staging
   become: true
   roles:
     - { role: nginx }
-    - { role: app_deploy }
+    - { role: frontend_deploy } #Using Frontend_deploy instead of app_deploy
+  tags:
+    - staging_deploy
+    - frontend_deploy
 
+# Distribute Nginx and frontend(prod)
 - hosts: prod
   become: true
   roles:
     - { role: nginx }
-    - { role: app_deploy }
+    - { role: frontend_deploy } #Using Frontend_deploy instead of app_deploy
+  tags:
+    - prod_deploy
+    - frontend_deploy
+
+# Deploy BE on Backend instance
+- hosts: backend
+  become: true
+  roles:
+    - { role: backend_deploy } #Using Backend_deploy instead of app_deploy
+  tags:
+    - backend_deploy
+    - staging_deploy
+    - prod_deploy
+
+# Deploy DB on DB instance
+- hosts: database
+  become: true
+  roles:
+    - { role: mongodb }
+  tags:
+    - db_deploy
+    - staging_deploy
+    - prod_deploy

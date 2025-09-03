@@ -5,3 +5,15 @@
     name: java-17-amazon-corretto-headless
     state: present
   ignore_errors: true
+
+- name: Install Ansible
+  package:
+    name: ansible
+    state: present
+
+- name: Install required Python packages for AWS
+  pip:
+    name:
+      - boto3
+      - botocore
+    state: present

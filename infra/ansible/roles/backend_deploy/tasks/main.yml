@@ -1,0 +1,47 @@
+---
+- name: Ensure backend deploy dir
+  file:
+    path: "{{ deploy_root }}/backend"
+    state: directory
+    mode: '0755'
+
+- name: Render backend env
+  template:
+    src: "env.j2"
+    dest: "{{ deploy_root }}/backend/.env"
+    mode: "0600"
+  vars:
+    # Set different IPs according to staging production environment
+    # In staging environment, use ProjectDB's IP. Production IP for prod environment.
+    db_host: "{{ db_staging_ip if env == 'staging' else db_prod_ip }}"
+
+- name: Copy backend compose file
+  copy:
+    src: "docker-compose-backend.yml"
+    dest: "{{ deploy_root }}/docker-compose.yml"
+
+- name: Set compose environment file
+  copy:
+    dest: "{{ deploy_root }}/.env"
+    mode: "0644"
+    content: |
+      BACKEND_IMAGE={{ backend_image }}
+      IMAGE_TAG={{ image_tag }}
+      BACKEND_PORT={{ backend_port }}
+
+- name: Deploy backend stack
+  community.docker.docker_compose_v2:
+    project_src: "{{ deploy_root }}"
+    files:
+      - "{{ deploy_root }}/docker-compose.yml"
+    pull: always
+    state: present
+
+- name: Wait for backend health
+  uri:
+    url: "http://127.0.0.1:{{ backend_port }}{{ backend_health_path }}"
+    status_code: 200
+  register: health
+  retries: 30
+  delay: 2
+  until: health.status == 200
