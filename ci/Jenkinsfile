@@ -101,7 +101,7 @@ pipeline {
         stage('Deploy to Kubernetes') {
             steps {
                 withCredentials([
-                    file(credentialsId: 'KUBECONFIG_STAGING', variable: 'KCONF'),
+                    // file(credentialsId: 'KUBECONFIG_STAGING', variable: 'KCONF'),
                     string(credentialsId: 'JWT_SECRET', variable: 'JWT_SECRET'),
                     string(credentialsId: 'MONGO_URI', variable: 'MONGO_URI') // optional for Atlas
                 ]) {
