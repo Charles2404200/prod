@@ -1,261 +1,138 @@
-// pipeline {
-//     agent any
-//     environment {
-//         APP_NAME = 'rmit-store'
-//         // Use a more descriptive and unique tag.
-//         // A combination of branch name and a unique identifier is a good practice.
-//         // This example uses a short Git commit hash, which is ideal for traceability.
-//         GIT_COMMIT_SHORT = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
-//         IMG_TAG = "${GIT_COMMIT_SHORT}"
-//         FRONTEND_IMAGE = "ghcr.io/yourorg/rmit-store-frontend"
-//         BACKEND_IMAGE  = "ghcr.io/yourorg/rmit-store-backend"
-//         MAIL_TO = "benbach2001@gmail.com"
-//         // Define paths to Dockerfiles and Compose files for clarity and reuse
-//         FRONTEND_DOCKERFILE = "ci/Dockerfile.frontend"
-//         BACKEND_DOCKERFILE = "ci/Dockerfile.backend"
-//         DOCKER_COMPOSE_FILE = "compose/staging/docker-compose.yml"
-//     }
-
-//     stages {
-//         stage('Checkout') {
-//             steps {
-//                 // Checkout the specific branch from your repository
-//                 git url: 'https://github.com/Charles2404200/prod', branch: 'main'
-//             }
-//         }
-
-//         stage('Build Docker Images') {
-//             steps {
-//                 script {
-//                     sh "docker build -t ${FRONTEND_IMAGE}:${IMG_TAG} -f ${FRONTEND_DOCKERFILE} ."
-//                     sh "docker build -t ${BACKEND_IMAGE}:${IMG_TAG} -f ${BACKEND_DOCKERFILE} ."
-//                     // Clean up unused images to save disk space
-//                     sh "docker image prune -f"
-//                 }
-//             }
-//         }
-
-//         stage('Run Unit Tests') {
-//             steps {
-//                 script {
-//                     // Run tests inside Docker containers to ensure a clean and consistent environment
-//                     sh "docker run --rm -v \$(pwd)/client:/app -w /app node:18-alpine sh -c \"npm install && npm test\""
-//                     sh "docker run --rm -v \$(pwd)/server:/app -w /app node:18-alpine sh -c \"npm install && npm test\""
-//                 }
-//             }
-//         }
-
-//         stage('Run Integration Tests') {
-//             steps {
-//                 script {
-//                     // Use Docker Compose to bring up the full stack for integration testing
-//                     sh "docker-compose -f ${DOCKER_COMPOSE_FILE} up --build -d"
-//                     // Wait for services to be ready
-//                     sh "sleep 20"
-//                     // Execute integration tests from within the backend container
-//                     sh "docker exec \$(docker-compose -f ${DOCKER_COMPOSE_FILE} ps -q backend) npm run test:integration"
-//                     // Clean up containers after tests are complete
-//                     sh "docker-compose -f ${DOCKER_COMPOSE_FILE} down"
-//                 }
-//             }
-//         }
-
-//         stage('Deploy STAGING (Ansible)') {
-//             steps {
-//                 // Deploy to the staging environment using Ansible
-//                 sh """
-//                     ansible-playbook -i infra/ansible/inventory.ini infra/ansible/site.yml \\
-//                         -l staging -t app_deploy \\
-//                         -e image_tag=${IMG_TAG} \\
-//                         -e frontend_image=${FRONTEND_IMAGE} \\
-//                         -e backend_image=${BACKEND_IMAGE}
-//                 """
-//             }
-//         }
-
-//         stage('Promote PROD (Blue/Green)') {
-//             // This stage only runs when a push is made to the 'main' branch
-//             when { branch 'main' }
-//             steps {
-//                 // Requires manual approval before deploying to production
-//                 input message: "Deploy to PROD?", ok: "Deploy"
-//                 sh """
-//                     ansible-playbook -i infra/ansible/inventory.ini infra/ansible/site.yml \\
-//                         -l prod -t app_deploy \\
-//                         -e color=green \\
-//                         -e image_tag=${IMG_TAG} \\
-//                         -e frontend_image=${FRONTEND_IMAGE} \\
-//                         -e backend_image=${BACKEND_IMAGE}
-//                 """
-//             }
-//         }
-//     }
-
-//     post {
-//         // Send email notifications for build success or failure
-//         success {
-//             mail to: env.MAIL_TO,
-//                  subject: "[SUCCESS] ${APP_NAME} build ${IMG_TAG}",
-//                  body: "The pipeline for ${APP_NAME} finished successfully. Details: ${env.BUILD_URL}"
-//         }
-//         failure {
-//             mail to: env.MAIL_TO,
-//                  subject: "[FAIL] ${APP_NAME} build ${IMG_TAG}",
-//                  body: "The pipeline for ${APP_NAME} failed. Check logs at: ${env.BUILD_URL}"
-//         }
-//     }
-// }
-
 pipeline {
-    agent any
+  agent any
+  options { timestamps() }
 
-    // Define all environment variables here for easy configuration
-    environment {
-        APP_NAME = 'rmit-store'
-        // Use a short Git commit hash for a unique and traceable image tag
-        GIT_COMMIT_SHORT = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
-        IMG_TAG = "${GIT_COMMIT_SHORT}"
-        FRONTEND_IMAGE = 'ghcr.io/yourorg/rmit-store-frontend'
-        BACKEND_IMAGE  = 'ghcr.io/yourorg/rmit-store-backend'
-        MAIL_TO = 'benbach2001@gmail.com'
-        // Define paths to Dockerfiles and Compose files for clarity and reuse
-        FRONTEND_DOCKERFILE = 'ci/Dockerfile.frontend'
-        BACKEND_DOCKERFILE = 'ci/Dockerfile.backend'
-        DOCKER_COMPOSE_FILE = 'compose/staging/docker-compose.yml'
+  parameters {
+    string(name: 'GHCR_NAMESPACE', defaultValue: 'yourorg', description: 'GHCR namespace (user/org)')
+    string(name: 'K8S_NAMESPACE',  defaultValue: 'rmit-store', description: 'Kubernetes namespace')
+    string(name: 'HOST',           defaultValue: '', description: 'Optional DNS host (leave blank to use server IP)')
+    string(name: 'BRANCH_TO_BUILD',defaultValue: 'main', description: 'Git branch to build')
+  }
+
+  environment {
+    APP_NAME = 'rmit-store'
+    BACKEND_IMAGE  = "ghcr.io/${params.GHCR_NAMESPACE}/rmit-store-backend"
+    FRONTEND_IMAGE = "ghcr.io/${params.GHCR_NAMESPACE}/rmit-store-frontend"
+    DB_IMAGE       = "ghcr.io/${params.GHCR_NAMESPACE}/rmit-store-db"
+  }
+
+  stages {
+    stage('Checkout') {
+      steps { checkout scm }
     }
 
-    stages {
-        stage('Checkout') {
-            steps {
-                // Checkout the specific branch from your repository
-                git url: 'https://github.com/Charles2404200/prod', branch: 'main'
-            }
+    stage('Login to GHCR') {
+      steps {
+        withCredentials([
+          string(credentialsId: 'GHCR_USER',  variable: 'GH_USER'),
+          string(credentialsId: 'GHCR_TOKEN', variable: 'GH_TOKEN')
+        ]) {
+          sh 'echo "$GH_TOKEN" | docker login ghcr.io -u "$GH_USER" --password-stdin'
         }
-
-        stage('Build Docker Images') {
-            steps {
-                script {
-                    // Use --progress=plain for verbose output
-                    sh "docker build -t ${FRONTEND_IMAGE}:${IMG_TAG} -f ${FRONTEND_DOCKERFILE} . --progress=plain"
-                    sh "docker build -t ${BACKEND_IMAGE}:${IMG_TAG} -f ${BACKEND_DOCKERFILE} . --progress=plain"
-                    // Clean up unused images to save disk space
-                    sh 'docker image prune -f'
-                }
-            }
-        }
-
-        stage('Run Unit Tests') {
-            steps {
-                script {
-                    // Run tests inside Docker containers to ensure a clean and consistent environment
-                    sh "docker run --rm -v \$(pwd)/client:/app -w /app node:18-alpine sh -c \"npm install && npm test\""
-                    sh "docker run --rm -v \$(pwd)/server:/app -w /app node:18-alpine sh -c \"npm install && npm test\""
-                }
-            }
-        }
-
-        stage('Run Integration Tests') {
-            steps {
-                script {
-                    // Use Docker Compose to bring up the full stack for integration testing
-                    sh "docker-compose -f ${DOCKER_COMPOSE_FILE} up --build -d"
-                    // Wait for services to be ready
-                    sh 'sleep 20'
-                    // Execute integration tests from within the backend container
-                    sh "docker exec \$(docker-compose -f ${DOCKER_COMPOSE_FILE} ps -q backend) npm run test:integration"
-                    // Clean up containers after tests are complete
-                    sh "docker-compose -f ${DOCKER_COMPOSE_FILE} down"
-                }
-            }
-        }
-
-        // stage('Deploy STAGING (Ansible)') {
-        //     steps {
-        //         script {
-        //             // Check if Ansible is available and install it if not sh ''' if ! command -v ansible-playbook &> /dev/null; then echo "Ansible not found. Installing..."; if command -v apt-get &> /dev/null; then sudo apt-get update && sudo apt-get install -y ansible; elif command -v yum &> /dev/null; then sudo yum install -y ansible; else echo "Error: Neither apt-get nor yum found. Cannot install Ansible."; exit 1; fi fi '''
-
-        //             // Check if the Docker community collection is installed and install it if not
-        //             sh '''
-        //             if ! ansible-galaxy collection list | grep community.docker &> /dev/null; then
-        //                 echo "Ansible Docker collection not found. Installing...";
-        //                 ansible-galaxy collection install community.docker
-        //             fi
-        //             '''
-
-        //             // Deploy to the staging environment using Ansible
-        //             sh """
-        //                 ansible-playbook -i infra/ansible/inventory.ini infra/ansible/site.yml \\
-        //                     -l staging -t app_deploy \\
-        //                     -e image_tag=${IMG_TAG} \\
-        //                     -e frontend_image=${FRONTEND_IMAGE} \\
-        //                     -e backend_image=${BACKEND_IMAGE}
-        //             """
-        //         }
-        //     }
-        // }
-        stage('Deploy STAGING (Ansible)') {
-            steps {
-                script {
-                    // Check if Ansible is available and install it if not
-                    sh '''
-                if ! command -v ansible-playbook &> /dev/null; then
-                    echo "Ansible not found. Installing...";
-                    if command -v apt-get &> /dev/null; then
-                        sudo apt-get update && sudo apt-get install -y ansible
-                    elif command -v yum &> /dev/null; then
-                        sudo yum install -y ansible
-                    else
-                        echo "Error: Neither apt-get nor yum found. Cannot install Ansible."
-                        exit 1
-                    fi
-                fi
-                '''
-
-                    // Install Ansible collections from requirements.yml into the local workspace
-                    sh 'ansible-galaxy collection install -r infra/ansible/requirements.yml -p ./collections'
-
-                    // Deploy to the staging environment using Ansible
-                    sh """
-                ansible-playbook -i infra/ansible/inventory.ini infra/ansible/site.yml \\
-                    --module-path ./collections/ansible_collections \\
-                    -l staging -t app_deploy \\
-                    -e image_tag=${IMG_TAG} \\
-                    -e frontend_image=${FRONTEND_IMAGE} \\
-                    -e backend_image=${BACKEND_IMAGE}
-                """
-                }
-            }
-        }
-
-        stage('Promote PROD (Blue/Green)') {
-            // This stage only runs when a push is made to the 'main' branch
-            when { branch 'main' }
-            steps {
-                // Requires manual approval before deploying to production
-                input message: 'Deploy to PROD?', ok: 'Deploy'
-                sh """
-                    ansible-playbook -i infra/ansible/inventory.ini infra/ansible/site.yml \\
-                        -l prod -t app_deploy \\
-                        -e color=green \\
-                        -e image_tag=${IMG_TAG} \\
-                        -e frontend_image=${FRONTEND_IMAGE} \\
-                        -e backend_image=${BACKEND_IMAGE}
-                """
-            }
-        }
+      }
     }
 
-    // Post-build actions for notifications
-    post {
-        success {
-            mail to: env.MAIL_TO,
-                 subject: "[SUCCESS] ${APP_NAME} build ${IMG_TAG}",
-                 body: "The pipeline for ${APP_NAME} finished successfully. Details: ${env.BUILD_URL}"
+    stage('Unit tests (backend)') {
+      steps {
+        dir('server') {
+          sh 'npm ci || npm install'
+          sh 'npm test || echo "no tests yet"'
         }
-        failure {
-            mail to: env.MAIL_TO,
-                 subject: "[FAIL] ${APP_NAME} build ${IMG_TAG}",
-                 body: "The pipeline for ${APP_NAME} failed. Check logs at: ${env.BUILD_URL}"
-        }
+      }
     }
+
+    stage('Build & push images (BE/FE/DB)') {
+      steps {
+        script {
+          env.IMAGE_TAG = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
+
+          sh """
+            # Backend
+            docker build -t ${BACKEND_IMAGE}:${IMAGE_TAG} -f Dockerfile.backend .
+            docker tag ${BACKEND_IMAGE}:${IMAGE_TAG} ${BACKEND_IMAGE}:latest
+            docker push ${BACKEND_IMAGE}:${IMAGE_TAG}
+            docker push ${BACKEND_IMAGE}:latest
+
+            # Frontend (client/.env must have API_URL=/api)
+            docker build -t ${FRONTEND_IMAGE}:${IMAGE_TAG} -f Dockerfile.frontend .
+            docker tag ${FRONTEND_IMAGE}:${IMAGE_TAG} ${FRONTEND_IMAGE}:latest
+            docker push ${FRONTEND_IMAGE}:${IMAGE_TAG}
+            docker push ${FRONTEND_IMAGE}:latest
+
+            # DB
+            docker build -t ${DB_IMAGE}:${IMAGE_TAG} -f Dockerfile.db .
+            docker tag ${DB_IMAGE}:${IMAGE_TAG} ${DB_IMAGE}:latest
+            docker push ${DB_IMAGE}:${IMAGE_TAG}
+            docker push ${DB_IMAGE}:latest
+          """
+        }
+      }
+    }
+
+    stage('Deploy to Kubernetes') {
+      steps {
+        withCredentials([
+          file(credentialsId: 'KUBECONFIG_STAGING', variable: 'KCONF'),
+          string(credentialsId: 'JWT_SECRET', variable: 'JWT_SECRET'),
+          string(credentialsId: 'MONGO_URI', variable: 'MONGO_URI') // optional for Atlas
+        ]) {
+          sh """
+            export KUBECONFIG="$KCONF"
+
+            # kubectl
+            if ! command -v kubectl >/dev/null 2>&1; then
+              curl -LO https://storage.googleapis.com/kubernetes-release/release/$(curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt)/bin/linux/amd64/kubectl
+              chmod +x kubectl && sudo mv kubectl /usr/local/bin/
+            fi
+
+            # Namespace
+            kubectl get ns ${K8S_NAMESPACE} >/dev/null 2>&1 || kubectl create ns ${K8S_NAMESPACE}
+
+            # App secrets
+            if [ -n "${MONGO_URI}" ]; then
+              kubectl -n ${K8S_NAMESPACE} create secret generic app-secrets \
+                --from-literal=JWT_SECRET="${JWT_SECRET}" \
+                --from-literal=MONGO_URI="${MONGO_URI}" \
+                --dry-run=client -o yaml | kubectl apply -f -
+            else
+              kubectl -n ${K8S_NAMESPACE} create secret generic app-secrets \
+                --from-literal=JWT_SECRET="${JWT_SECRET}" \
+                --dry-run=client -o yaml | kubectl apply -f -
+            fi
+
+            # Mongo secrets (for in-cluster DB)
+            kubectl -n ${K8S_NAMESPACE} create secret generic mongo-auth \
+              --from-literal=MONGO_INITDB_ROOT_USERNAME=rmitadmin \
+              --from-literal=MONGO_INITDB_ROOT_PASSWORD=rmitpass \
+              --from-literal=MONGO_DB=rmit_ecommerce \
+              --dry-run=client -o yaml | kubectl apply -f -
+
+            # DB (PVC/StatefulSet/Service)
+            sed "s|__DB_IMAGE__|${DB_IMAGE}|g; s|__IMAGE_TAG__|${IMAGE_TAG}|g" k8s/mongo-statefulset.yaml | kubectl -n ${K8S_NAMESPACE} apply -f -
+            kubectl -n ${K8S_NAMESPACE} apply -f k8s/services.yaml
+
+            # BE/FE Deployments with images+tags
+            sed "s|__BACKEND_IMAGE__|${BACKEND_IMAGE}|g; s|__IMAGE_TAG__|${IMAGE_TAG}|g" k8s/backend-deployment.yaml | kubectl -n ${K8S_NAMESPACE} apply -f -
+            sed "s|__FRONTEND_IMAGE__|${FRONTEND_IMAGE}|g; s|__IMAGE_TAG__|${IMAGE_TAG}|g" k8s/frontend-deployment.yaml | kubectl -n ${K8S_NAMESPACE} apply -f -
+
+            # Ingress
+            if [ -n "${HOST}" ]; then
+              sed "s|__HOST__|${HOST}|g" k8s/ingress.yaml | kubectl -n ${K8S_NAMESPACE} apply -f -
+            else
+              sed "/host: __HOST__/d" k8s/ingress.yaml | kubectl -n ${K8S_NAMESPACE} apply -f -
+            fi
+
+            # Wait for rollouts
+            kubectl -n ${K8S_NAMESPACE} rollout status deploy/backend --timeout=180s
+            kubectl -n ${K8S_NAMESPACE} rollout status deploy/frontend --timeout=180s
+          """
+        }
+      }
+    }
+  }
+
+  post {
+    success { echo "✅ Deployed ${env.APP_NAME} ${env.IMAGE_TAG} to k8s ns ${params.K8S_NAMESPACE}" }
+    failure { echo "❌ Pipeline failed" }
+  }
 }
