@@ -1,11 +1,19 @@
 pipeline {
     agent any
 
+    // parameters {
+    //     string(name: 'GHCR_NAMESPACE', defaultValue: 'benbach2001@gmail.com', description: 'GHCR namespace (user/org)')
+    //     string(name: 'K8S_NAMESPACE',  defaultValue: 'rmit-store', description: 'Kubernetes namespace')
+    //     string(name: 'HOST',           defaultValue: '', description: 'Optional DNS host (leave blank to use server IP)')
+    //     string(name: 'BRANCH_TO_BUILD', defaultValue: 'main', description: 'Git branch to build')
+    // }
+
+
     parameters {
-        string(name: 'GHCR_NAMESPACE', defaultValue: 'benbach2001@gmail.com', description: 'GHCR namespace (user/org)')
+        string(name: 'GHCR_NAMESPACE', defaultValue: 'benbach2001', description: 'GHCR namespace (user/org)')
         string(name: 'K8S_NAMESPACE',  defaultValue: 'rmit-store', description: 'Kubernetes namespace')
         string(name: 'HOST',           defaultValue: '', description: 'Optional DNS host (leave blank to use server IP)')
-        string(name: 'BRANCH_TO_BUILD', defaultValue: 'main', description: 'Git branch to build')
+        string(name: 'BRANCH_TO_BUILD',defaultValue: 'main', description: 'Git branch to build')
     }
 
     environment {
