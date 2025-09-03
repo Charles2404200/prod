@@ -71,7 +71,7 @@ pipeline {
 
                     withCredentials([string(credentialsId: 'GH_CR_FINE_GRAINED_TOKEN', variable: 'GH_TOKEN')]) {
                         sh """
-                        echo "$GH_TOKEN" | docker login ghcr.io -u benbach2001 --password-stdin
+                        echo "$GH_TOKEN" | docker login ghcr.io -u BennyBach1002 --password-stdin
 
                         docker build -t ${BACKEND_IMAGE}:${IMAGE_TAG}  -f ci/Dockerfile.backend .
                         docker tag ${BACKEND_IMAGE}:${IMAGE_TAG}  ${BACKEND_IMAGE}:latest
