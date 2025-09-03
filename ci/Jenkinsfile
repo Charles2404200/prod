@@ -109,11 +109,14 @@ pipeline {
                     sh """
                         export KUBECONFIG="$KCONF"
 
-                        # kubectl
+                       # Kubectl setup
                         if ! command -v kubectl >/dev/null 2>&1; then
-                            # Fix is here: The '\$' escapes the dollar sign for Groovy so the shell can interpret it.
-                            curl -LO https://storage.googleapis.com/kubernetes-release/release/\$(curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt)/bin/linux/amd64/kubectl
-                            chmod +x kubectl && sudo mv kubectl /usr/local/bin/
+                            # Download kubectl
+                            curl -LO https://storage.googleapis.com/kubernetes-release/release/\$(curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt)/bin/linux/amd64/kubectl     
+                            # Make it executable and add the current directory to the PATH
+                            chmod +x kubectl
+                            export PATH=\$PATH:.
+                            echo "kubectl installed successfully."
                         fi
 
                         # Namespace
