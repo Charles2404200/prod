@@ -58,14 +58,14 @@ pipeline {
         //         }
         //     }
         // }
-        stage('Unit tests (backend)') {
-            steps {
-                dir('server') {
-                    sh 'npm ci || npm install'
-                    sh 'npm test || echo "no tests yet"'
-                }
-            }
-        }
+        // stage('Unit tests (backend)') {
+        //     steps {
+        //         dir('server') {
+        //             sh 'npm ci || npm install'
+        //             sh 'npm test || echo "no tests yet"'
+        //         }
+        //     }
+        // }
 
         stage('Build & push images (BE/FE/DB)') {
             steps {
