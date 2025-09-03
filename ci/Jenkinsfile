@@ -68,101 +68,101 @@ pipeline {
         //     }
         // }
 
-        // stage('Build & push images (BE/FE/DB)') {
-        //     steps {
-        //         script {
-        //             // sanitize namespace: lowercase, remove anything not a-z0-9-
-        //             def ns = params.GHCR_NAMESPACE.toLowerCase().replaceAll(/[^a-z0-9-]/, '')
-        //             env.BACKEND_IMAGE  = "ghcr.io/${ns}/rmit-store-backend"
-        //             env.FRONTEND_IMAGE = "ghcr.io/${ns}/rmit-store-frontend"
-        //             env.DB_IMAGE       = "ghcr.io/${ns}/rmit-store-db"
-        //             env.IMAGE_TAG      = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
-
-        //             sh """
-        //             docker build -t ${BACKEND_IMAGE}:${IMAGE_TAG}  -f ci/Dockerfile.backend .
-        //             docker tag ${BACKEND_IMAGE}:${IMAGE_TAG}  ${BACKEND_IMAGE}:latest
-        //             docker push ${BACKEND_IMAGE}:${IMAGE_TAG}
-        //             docker push ${BACKEND_IMAGE}:latest
-
-        //             docker build -t ${FRONTEND_IMAGE}:${IMAGE_TAG} -f ci/Dockerfile.frontend .
-        //             docker tag ${FRONTEND_IMAGE}:${IMAGE_TAG} ${FRONTEND_IMAGE}:latest
-        //             docker push ${FRONTEND_IMAGE}:${IMAGE_TAG}
-        //             docker push ${FRONTEND_IMAGE}:latest
-
-        //             docker build -t ${DB_IMAGE}:${IMAGE_TAG} -f Dockerfile.db .
-        //             docker tag ${DB_IMAGE}:${IMAGE_TAG} ${DB_IMAGE}:latest
-        //             docker push ${DB_IMAGE}:${IMAGE_TAG}
-        //             docker push ${DB_IMAGE}:latest
-        //             """
-        //         }
-        //     }
-        // }
-
-        stage('Deploy to Kubernetes') {
+        stage('Build & push images (BE/FE/DB)') {
             steps {
-                withCredentials([
-                    file(credentialsId: 'KUBECONFIG_STAGING', variable: 'KCONF'),
-                    string(credentialsId: 'JWT_SECRET', variable: 'JWT_SECRET'),
-                    string(credentialsId: 'MONGO_URI', variable: 'MONGO_URI') // optional for Atlas
-                ]) 
-                {
+                script {
+                    // sanitize namespace: lowercase, remove anything not a-z0-9-
+                    def ns = params.GHCR_NAMESPACE.toLowerCase().replaceAll(/[^a-z0-9-]/, '')
+                    env.BACKEND_IMAGE  = "ghcr.io/${ns}/rmit-store-backend"
+                    env.FRONTEND_IMAGE = "ghcr.io/${ns}/rmit-store-frontend"
+                    env.DB_IMAGE       = "ghcr.io/${ns}/rmit-store-db"
+                    env.IMAGE_TAG      = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
+
                     sh """
-                        export KUBECONFIG="$KCONF"
+                    docker build -t ${BACKEND_IMAGE}:${IMAGE_TAG}  -f ci/Dockerfile.backend .
+                    docker tag ${BACKEND_IMAGE}:${IMAGE_TAG}  ${BACKEND_IMAGE}:latest
+                    docker push ${BACKEND_IMAGE}:${IMAGE_TAG}
+                    docker push ${BACKEND_IMAGE}:latest
 
-                       # Kubectl setup
-                        if ! command -v kubectl >/dev/null 2>&1; then
-                            # Download kubectl
-                            curl -LO https://storage.googleapis.com/kubernetes-release/release/\$(curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt)/bin/linux/amd64/kubectl     
-                            # Make it executable and add the current directory to the PATH
-                            chmod +x kubectl
-                            export PATH=\$PATH:.
-                            echo "kubectl installed successfully."
-                        fi
+                    docker build -t ${FRONTEND_IMAGE}:${IMAGE_TAG} -f ci/Dockerfile.frontend .
+                    docker tag ${FRONTEND_IMAGE}:${IMAGE_TAG} ${FRONTEND_IMAGE}:latest
+                    docker push ${FRONTEND_IMAGE}:${IMAGE_TAG}
+                    docker push ${FRONTEND_IMAGE}:latest
 
-                        # Namespace
-                        kubectl get ns ${K8S_NAMESPACE} >/dev/null 2>&1 || kubectl create ns ${K8S_NAMESPACE}
-
-                        # App secrets
-                        if [ -n "${MONGO_URI}" ]; then
-                            kubectl -n ${K8S_NAMESPACE} create secret generic app-secrets \\
-                                --from-literal=JWT_SECRET="${JWT_SECRET}" \\
-                                --from-literal=MONGO_URI="${MONGO_URI}" \\
-                                --dry-run=client -o yaml | kubectl apply -f -
-                        else
-                            kubectl -n ${K8S_NAMESPACE} create secret generic app-secrets \\
-                                --from-literal=JWT_SECRET="${JWT_SECRET}" \\
-                                --dry-run=client -o yaml | kubectl apply -f -
-                        fi
-
-                        # Mongo secrets (for in-cluster DB)
-                        kubectl -n ${K8S_NAMESPACE} create secret generic mongo-auth \\
-                            --from-literal=MONGO_INITDB_ROOT_USERNAME=rmitadmin \\
-                            --from-literal=MONGO_INITDB_ROOT_PASSWORD=rmitpass \\
-                            --from-literal=MONGO_DB=rmit_ecommerce \\
-                            --dry-run=client -o yaml | kubectl apply -f -
-
-                        # DB (PVC/StatefulSet/Service)
-                        sed "s|__DB_IMAGE__|${DB_IMAGE}|g; s|g" k8s/mongo-statefulset.yaml | kubectl -n ${K8S_NAMESPACE} apply -f -
-                        kubectl -n ${K8S_NAMESPACE} apply -f k8s/services.yaml
-
-                        # BE/FE Deployments with images+tags
-                        sed "s|__BACKEND_IMAGE__|${BACKEND_IMAGE}|g; s|g" k8s/backend-deployment.yaml | kubectl -n ${K8S_NAMESPACE} apply -f -
-                        sed "s|__FRONTEND_IMAGE__|${FRONTEND_IMAGE}|g; s|g" k8s/frontend-deployment.yaml | kubectl -n ${K8S_NAMESPACE} apply -f -
-
-                        # Ingress
-                        if [ -n "${HOST}" ]; then
-                            sed "s|__HOST__|${HOST}|g" k8s/ingress.yaml | kubectl -n ${K8S_NAMESPACE} apply -f -
-                        else
-                            sed "/host: __HOST__/d" k8s/ingress.yaml | kubectl -n ${K8S_NAMESPACE} apply -f -
-                        fi
-
-                        # Wait for rollouts
-                        kubectl -n ${K8S_NAMESPACE} rollout status deploy/backend --timeout=180s
-                        kubectl -n ${K8S_NAMESPACE} rollout status deploy/frontend --timeout=180s
+                    docker build -t ${DB_IMAGE}:${IMAGE_TAG} -f Dockerfile.db .
+                    docker tag ${DB_IMAGE}:${IMAGE_TAG} ${DB_IMAGE}:latest
+                    docker push ${DB_IMAGE}:${IMAGE_TAG}
+                    docker push ${DB_IMAGE}:latest
                     """
                 }
             }
         }
+
+        // stage('Deploy to Kubernetes') {
+        //     steps {
+        //         withCredentials([
+        //             file(credentialsId: 'KUBECONFIG_STAGING', variable: 'KCONF'),
+        //             string(credentialsId: 'JWT_SECRET', variable: 'JWT_SECRET'),
+        //             string(credentialsId: 'MONGO_URI', variable: 'MONGO_URI') // optional for Atlas
+        //         ]) 
+        //         {
+        //             sh """
+        //                 export KUBECONFIG="$KCONF"
+
+        //                # Kubectl setup
+        //                 if ! command -v kubectl >/dev/null 2>&1; then
+        //                     # Download kubectl
+        //                     curl -LO https://storage.googleapis.com/kubernetes-release/release/\$(curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt)/bin/linux/amd64/kubectl     
+        //                     # Make it executable and add the current directory to the PATH
+        //                     chmod +x kubectl
+        //                     export PATH=\$PATH:.
+        //                     echo "kubectl installed successfully."
+        //                 fi
+
+        //                 # Namespace
+        //                 kubectl get ns ${K8S_NAMESPACE} >/dev/null 2>&1 || kubectl create ns ${K8S_NAMESPACE}
+
+        //                 # App secrets
+        //                 if [ -n "${MONGO_URI}" ]; then
+        //                     kubectl -n ${K8S_NAMESPACE} create secret generic app-secrets \\
+        //                         --from-literal=JWT_SECRET="${JWT_SECRET}" \\
+        //                         --from-literal=MONGO_URI="${MONGO_URI}" \\
+        //                         --dry-run=client -o yaml | kubectl apply -f -
+        //                 else
+        //                     kubectl -n ${K8S_NAMESPACE} create secret generic app-secrets \\
+        //                         --from-literal=JWT_SECRET="${JWT_SECRET}" \\
+        //                         --dry-run=client -o yaml | kubectl apply -f -
+        //                 fi
+
+        //                 # Mongo secrets (for in-cluster DB)
+        //                 kubectl -n ${K8S_NAMESPACE} create secret generic mongo-auth \\
+        //                     --from-literal=MONGO_INITDB_ROOT_USERNAME=rmitadmin \\
+        //                     --from-literal=MONGO_INITDB_ROOT_PASSWORD=rmitpass \\
+        //                     --from-literal=MONGO_DB=rmit_ecommerce \\
+        //                     --dry-run=client -o yaml | kubectl apply -f -
+
+        //                 # DB (PVC/StatefulSet/Service)
+        //                 sed "s|__DB_IMAGE__|${DB_IMAGE}|g; s|g" k8s/mongo-statefulset.yaml | kubectl -n ${K8S_NAMESPACE} apply -f -
+        //                 kubectl -n ${K8S_NAMESPACE} apply -f k8s/services.yaml
+
+        //                 # BE/FE Deployments with images+tags
+        //                 sed "s|__BACKEND_IMAGE__|${BACKEND_IMAGE}|g; s|g" k8s/backend-deployment.yaml | kubectl -n ${K8S_NAMESPACE} apply -f -
+        //                 sed "s|__FRONTEND_IMAGE__|${FRONTEND_IMAGE}|g; s|g" k8s/frontend-deployment.yaml | kubectl -n ${K8S_NAMESPACE} apply -f -
+
+        //                 # Ingress
+        //                 if [ -n "${HOST}" ]; then
+        //                     sed "s|__HOST__|${HOST}|g" k8s/ingress.yaml | kubectl -n ${K8S_NAMESPACE} apply -f -
+        //                 else
+        //                     sed "/host: __HOST__/d" k8s/ingress.yaml | kubectl -n ${K8S_NAMESPACE} apply -f -
+        //                 fi
+
+        //                 # Wait for rollouts
+        //                 kubectl -n ${K8S_NAMESPACE} rollout status deploy/backend --timeout=180s
+        //                 kubectl -n ${K8S_NAMESPACE} rollout status deploy/frontend --timeout=180s
+        //             """
+        //         }
+        //     }
+        // }
     }
 
     post {
