@@ -59,24 +59,15 @@ pipeline {
         //     }
         // }
 
-        // stage('Unit tests (backend)') {
-        //     steps {
-        //         dir('server') {
-        //             sh 'npm ci || npm install'
-        //             sh 'npm test || echo "no tests yet"'
-        //         }
-        //     }
-        // }
-
-       stage('Build & push images (BE/FE/DB)') {
+        stage('Build & push images (BE/FE/DB)') {
             steps {
                 script {
                     // sanitize namespace: lowercase, remove anything not a-z0-9-
                     def ns = params.GHCR_NAMESPACE.toLowerCase().replaceAll(/[^a-z0-9-]/, '')
-                    env.BACKEND_IMAGE  = "ghcr.io/${ns}/rmit-store-backend"
+                    env.BACKEND_IMAGE  = "ghcr.io/${ns}/rmit-store-backend"
                     env.FRONTEND_IMAGE = "ghcr.io/${ns}/rmit-store-frontend"
-                    env.DB_IMAGE       = "ghcr.io/${ns}/rmit-store-db"
-                    env.IMAGE_TAG      = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
+                    env.DB_IMAGE       = "ghcr.io/${ns}/rmit-store-db"
+                    env.IMAGE_TAG      = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
 
                     withCredentials([string(credentialsId: 'GH_CR_FINE_GRAINED_TOKEN', variable: 'GH_TOKEN')]) {
                         sh """
@@ -101,6 +92,7 @@ pipeline {
                 }
             }
         }
+
         // stage('Deploy to Kubernetes') {
         //     steps {
         //         withCredentials([
