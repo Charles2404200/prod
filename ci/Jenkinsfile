@@ -1,187 +1,167 @@
 pipeline {
     agent any
 
-// parameters {
-//     string(name: 'GHCR_NAMESPACE', defaultValue: 'benbach2001@gmail.com', description: 'GHCR namespace (user/org)')
-//     string(name: 'K8S_NAMESPACE',  defaultValue: 'rmit-store', description: 'Kubernetes namespace')
-//     string(name: 'HOST',           defaultValue: '', description: 'Optional DNS host (leave blank to use server IP)')
-//     string(name: 'BRANCH_TO_BUILD', defaultValue: 'main', description: 'Git branch to build')
-// }
+    parameters {
+        string(name: 'GHCR_NAMESPACE', defaultValue: 'benbach2001@gmail.com', description: 'GHCR namespace (user/org)')
+        string(name: 'K8S_NAMESPACE',  defaultValue: 'rmit-store', description: 'Kubernetes namespace')
+        string(name: 'HOST',           defaultValue: '', description: 'Optional DNS host (leave blank to use server IP)')
+        string(name: 'BRANCH_TO_BUILD',defaultValue: 'main', description: 'Git branch to build')
+    }
 
+    environment {
+        APP_NAME = 'rmit-store'
+        BACKEND_IMAGE  = "ghcr.io/${params.GHCR_NAMESPACE}/rmit-store-backend"
+        FRONTEND_IMAGE = "ghcr.io/${params.GHCR_NAMESPACE}/rmit-store-frontend"
+        DB_IMAGE       = "ghcr.io/${params.GHCR_NAMESPACE}/rmit-store-db"
+    }
 
-parameters {
-    string(name: 'GHCR_NAMESPACE', defaultValue: 'benbach2001', description: 'GHCR namespace (user/org)')
-    string(name: 'K8S_NAMESPACE',  defaultValue: 'rmit-store', description: 'Kubernetes namespace')
-    string(name: 'HOST',           defaultValue: '', description: 'Optional DNS host (leave blank to use server IP)')
-    string(name: 'BRANCH_TO_BUILD',defaultValue: 'main', description: 'Git branch to build')
-}
+    stages {
+        stage('Checkout') {
+            steps { checkout scm }
+        }
 
-environment {
-    APP_NAME = 'rmit-store'
-    BACKEND_IMAGE  = "ghcr.io/${params.GHCR_NAMESPACE}/rmit-store-backend"
-    FRONTEND_IMAGE = "ghcr.io/${params.GHCR_NAMESPACE}/rmit-store-frontend"
-    DB_IMAGE       = "ghcr.io/${params.GHCR_NAMESPACE}/rmit-store-db"
-}
+        // stage('Login to GHCR') {
+        //     steps {
+        //         withCredentials([
+        //             string(credentialsId: 'GHCR_USER',  variable: 'GH_USER'),
+        //             string(credentialsId: 'GHCR_TOKEN', variable: 'GH_TOKEN')
+        //         ]) {
+        //             sh 'echo "$GH_TOKEN" | docker login ghcr.io -u "$GH_USER" --password-stdin'
+        //         }
+        //     }
+        // }
+        
+        stage('Login to GHCR') {
+            steps {
+                // The fix is here: The credential type is now correctly 'usernamePassword'.
+                // It maps the username and password from the same credential ID to separate variables.
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'GHCR_USER',
+                        usernameVariable: 'GH_USER',
+                        passwordVariable: 'GH_TOKEN'
+                    )
+                ]) {
+                    sh 'echo "$GH_TOKEN" | docker login ghcr.io -u "$GH_USER" --password-stdin'
+                }
+            }
+        }
 
-    stages {
-        stage('Checkout') {
-            steps { checkout scm }
-        }
+        // stage('Unit tests (backend)') {
+        //     steps {
+        //         // The fix is here: Running npm commands inside a Node.js Docker container.
+        //         docker.image('node:18').inside {
+        //             dir('server') {
+        //                 sh 'npm ci || npm install'
+        //                 sh 'npm test || echo "no tests yet"'
+        //             }
+        //         }
+        //     }
+        // }
 
-        // stage('Login to GHCR') {
-        //     steps {
-        //         withCredentials([
-        //             string(credentialsId: 'GHCR_USER',  variable: 'GH_USER'),
-        //             string(credentialsId: 'GHCR_TOKEN', variable: 'GH_TOKEN')
-        //         ]) {
-        //             sh 'echo "$GH_TOKEN" | docker login ghcr.io -u "$GH_USER" --password-stdin'
-        //         }
-        //     }
-        // }
+        // stage('Unit tests (backend)') {
+        //     steps {
+        //         dir('server') {
+        //             sh 'npm ci || npm install'
+        //             sh 'npm test || echo "no tests yet"'
+        //         }
+        //     }
+        // }
 
-        stage('Login to GHCR') {
-            steps {
-                // The fix is here: The credential type is now correctly 'usernamePassword'.
-                // It maps the username and password from the same credential ID to separate variables.
-                withCredentials([
-                    usernamePassword(
-                        credentialsId: 'GHCR_USER',
-                        usernameVariable: 'GH_USER',
-                        passwordVariable: 'GH_TOKEN'
-                    )
-                ]) {
-                    sh 'echo "$GH_TOKEN" | docker login ghcr.io -u "$GH_USER" --password-stdin'
-                }
-            }
-        }
+        stage('Build & push images (BE/FE/DB)') {
+            steps {
+                script {
+                    env.IMAGE_TAG = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
 
-        // stage('Unit tests (backend)') {
-        //     steps {
-        //         // The fix is here: Running npm commands inside a Node.js Docker container.
-        //         docker.image('node:18').inside {
-        //             dir('server') {
-        //         //     sh 'npm ci || npm install'
-        //         //     sh 'npm test || echo "no tests yet"'
-        //         //   }
-        //         // }
-        //     }
-        // }
+                    sh """
+                        # Backend
+                        docker build -t ${BACKEND_IMAGE}:${IMAGE_TAG} -f ci/Dockerfile.backend .
+                        docker tag ${BACKEND_IMAGE}:${IMAGE_TAG} ${BACKEND_IMAGE}:latest
+                        docker push ${BACKEND_IMAGE}:${IMAGE_TAG}
+                        docker push ${BACKEND_IMAGE}:latest
 
-        // stage('Unit tests (backend)') {
-        //     steps {
-        //         dir('server') {
-        //             sh 'npm ci || npm install'
-        //             sh 'npm test || echo "no tests yet"'
-        //         }
-        //     }
-        // }
-        
-        stage('Unit tests (backend)') {
-            steps {
-                // Ensure a consistent Node.js environment for tests.
-                docker.image('node:18').inside {
-                    dir('server') {
-                        sh 'npm ci'
-                        sh 'npm test || echo "no tests yet"'
-                    }
-                }
-            }
-        }
+                        # Frontend (client/.env must have API_URL=/api)
+                        docker build -t ${FRONTEND_IMAGE}:${IMAGE_TAG} -f ci/Dockerfile.frontend .
+                        docker tag ${FRONTEND_IMAGE}:${IMAGE_TAG} ${FRONTEND_IMAGE}:latest
+                        docker push ${FRONTEND_IMAGE}:${IMAGE_TAG}
+                        docker push ${FRONTEND_IMAGE}:latest
 
+                 
+                    """
+                }
+                    //    # DB
+                    //     docker build -t ${DB_IMAGE}:${IMAGE_TAG} -f Dockerfile.db .
+                    //     docker tag ${DB_IMAGE}:${IMAGE_TAG} ${DB_IMAGE}:latest
+                    //     docker push ${DB_IMAGE}:${IMAGE_TAG}
+                    //     docker push ${DB_IMAGE}:latest
+            }
+        }
 
-        stage('Build & push images (BE/FE/DB)') {
-            steps {
-                script {
-                    env.IMAGE_TAG = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
+        stage('Deploy to Kubernetes') {
+            steps {
+                withCredentials([
+                    file(credentialsId: 'KUBECONFIG_STAGING', variable: 'KCONF'),
+                    string(credentialsId: 'JWT_SECRET', variable: 'JWT_SECRET'),
+                    string(credentialsId: 'MONGO_URI', variable: 'MONGO_URI') // optional for Atlas
+                ]) {
+                    sh """
+                        export KUBECONFIG="$KCONF"
 
-                    sh """
-                        # Backend
-                        docker build -t ${BACKEND_IMAGE}:${IMAGE_TAG} -f ci/Dockerfile.backend .
-                        docker tag ${BACKEND_IMAGE}:${IMAGE_TAG} ${BACKEND_IMAGE}:latest
-                        docker push ${BACKEND_IMAGE}:${IMAGE_TAG}
-                        docker push ${BACKEND_IMAGE}:latest
+                        # kubectl
+                        if ! command -v kubectl >/dev/null 2>&1; then
+                            # Fix is here: The '\$' escapes the dollar sign for Groovy so the shell can interpret it.
+                            curl -LO https://storage.googleapis.com/kubernetes-release/release/\$(curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt)/bin/linux/amd64/kubectl
+                            chmod +x kubectl && sudo mv kubectl /usr/local/bin/
+                        fi
 
-                        # Frontend (client/.env must have API_URL=/api)
-                        docker build -t ${FRONTEND_IMAGE}:${IMAGE_TAG} -f ci/Dockerfile.frontend .
-                        docker tag ${FRONTEND_IMAGE}:${IMAGE_TAG} ${FRONTEND_IMAGE}:latest
-                        docker push ${FRONTEND_IMAGE}:${IMAGE_TAG}
-                        docker push ${FRONTEND_IMAGE}:latest
+                        # Namespace
+                        kubectl get ns ${K8S_NAMESPACE} >/dev/null 2>&1 || kubectl create ns ${K8S_NAMESPACE}
 
-                    """
-                }
-            //    # DB
-            //     docker build -t ${DB_IMAGE}:${IMAGE_TAG} -f Dockerfile.db .
-            //     docker tag ${DB_IMAGE}:${IMAGE_TAG} ${DB_IMAGE}:latest
-            //     docker push ${DB_IMAGE}:${IMAGE_TAG}
-            //     docker push ${DB_IMAGE}:latest
-            }
-        }
+                        # App secrets
+                        if [ -n "${MONGO_URI}" ]; then
+                            kubectl -n ${K8S_NAMESPACE} create secret generic app-secrets \\
+                                --from-literal=JWT_SECRET="${JWT_SECRET}" \\
+                                --from-literal=MONGO_URI="${MONGO_URI}" \\
+                                --dry-run=client -o yaml | kubectl apply -f -
+                        else
+                            kubectl -n ${K8S_NAMESPACE} create secret generic app-secrets \\
+                                --from-literal=JWT_SECRET="${JWT_SECRET}" \\
+                                --dry-run=client -o yaml | kubectl apply -f -
+                        fi
 
-        stage('Deploy to Kubernetes') {
-            steps {
-                withCredentials([
-                    file(credentialsId: 'KUBECONFIG_STAGING', variable: 'KCONF'),
-                    string(credentialsId: 'JWT_SECRET', variable: 'JWT_SECRET'),
-                    string(credentialsId: 'MONGO_URI', variable: 'MONGO_URI') // optional for Atlas
-                ]) {
-                    sh """
-                        export KUBECONFIG="$KCONF"
+                        # Mongo secrets (for in-cluster DB)
+                        kubectl -n ${K8S_NAMESPACE} create secret generic mongo-auth \\
+                            --from-literal=MONGO_INITDB_ROOT_USERNAME=rmitadmin \\
+                            --from-literal=MONGO_INITDB_ROOT_PASSWORD=rmitpass \\
+                            --from-literal=MONGO_DB=rmit_ecommerce \\
+                            --dry-run=client -o yaml | kubectl apply -f -
 
-                        # kubectl
-                        if ! command -v kubectl >/dev/null 2>&1; then
-                            # Fix is here: The '\$' escapes the dollar sign for Groovy so the shell can interpret it.
-                            curl -LO https://storage.googleapis.com/kubernetes-release/release/\$(curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt)/bin/linux/amd64/kubectl
-                            chmod +x kubectl && sudo mv kubectl /usr/local/bin/
-                        fi
+                        # DB (PVC/StatefulSet/Service)
+                        sed "s|__DB_IMAGE__|${DB_IMAGE}|g; s|__IMAGE_TAG__|${IMAGE_TAG}|g" k8s/mongo-statefulset.yaml | kubectl -n ${K8S_NAMESPACE} apply -f -
+                        kubectl -n ${K8S_NAMESPACE} apply -f k8s/services.yaml
 
-                        # Namespace
-                        kubectl get ns ${K8S_NAMESPACE} >/dev/null 2>&1 || kubectl create ns ${K8S_NAMESPACE}
+                        # BE/FE Deployments with images+tags
+                        sed "s|__BACKEND_IMAGE__|${BACKEND_IMAGE}|g; s|__IMAGE_TAG__|${IMAGE_TAG}|g" k8s/backend-deployment.yaml | kubectl -n ${K8S_NAMESPACE} apply -f -
+                        sed "s|__FRONTEND_IMAGE__|${FRONTEND_IMAGE}|g; s|__IMAGE_TAG__|${IMAGE_TAG}|g" k8s/frontend-deployment.yaml | kubectl -n ${K8S_NAMESPACE} apply -f -
 
-                        # App secrets
-                        if [ -n "${MONGO_URI}" ]; then
-                            kubectl -n ${K8S_NAMESPACE} create secret generic app-secrets \\
-                                --from-literal=JWT_SECRET="${JWT_SECRET}" \\
-                                --from-literal=MONGO_URI="${MONGO_URI}" \\
-                                --dry-run=client -o yaml | kubectl apply -f -
-                        else
-                            kubectl -n ${K8S_NAMESPACE} create secret generic app-secrets \\
-                                --from-literal=JWT_SECRET="${JWT_SECRET}" \\
-                                --dry-run=client -o yaml | kubectl apply -f -
-                        fi
+                        # Ingress
+                        if [ -n "${HOST}" ]; then
+                            sed "s|__HOST__|${HOST}|g" k8s/ingress.yaml | kubectl -n ${K8S_NAMESPACE} apply -f -
+                        else
+                            sed "/host: __HOST__/d" k8s/ingress.yaml | kubectl -n ${K8S_NAMESPACE} apply -f -
+                        fi
 
-                        # Mongo secrets (for in-cluster DB)
-                        kubectl -n ${K8S_NAMESPACE} create secret generic mongo-auth \\
-                            --from-literal=MONGO_INITDB_ROOT_USERNAME=rmitadmin \\
-                            --from-literal=MONGO_INITDB_ROOT_PASSWORD=rmitpass \\
-                            --from-literal=MONGO_DB=rmit_ecommerce \\
-                            --dry-run=client -o yaml | kubectl apply -f -
+                        # Wait for rollouts
+                        kubectl -n ${K8S_NAMESPACE} rollout status deploy/backend --timeout=180s
+                        kubectl -n ${K8S_NAMESPACE} rollout status deploy/frontend --timeout=180s
+                    """
+                }
+            }
+        }
+    }
 
-                        # DB (PVC/StatefulSet/Service)
-                        sed "s|__DB_IMAGE__|${DB_IMAGE}|g; s|__IMAGE_TAG__|${IMAGE_TAG}|g" k8s/mongo-statefulset.yaml | kubectl -n ${K8S_NAMESPACE} apply -f -
-                        kubectl -n ${K8S_NAMESPACE} apply -f k8s/services.yaml
-
-                        # BE/FE Deployments with images+tags
-                        sed "s|__BACKEND_IMAGE__|${BACKEND_IMAGE}|g; s|__IMAGE_TAG__|${IMAGE_TAG}|g" k8s/backend-deployment.yaml | kubectl -n ${K8S_NAMESPACE} apply -f -
-                        sed "s|__FRONTEND_IMAGE__|${FRONTEND_IMAGE}|g; s|__IMAGE_TAG__|${IMAGE_TAG}|g" k8s/frontend-deployment.yaml | kubectl -n ${K8S_NAMESPACE} apply -f -
-
-                        # Ingress
-                        if [ -n "${HOST}" ]; then
-                            sed "s|__HOST__|${HOST}|g" k8s/ingress.yaml | kubectl -n ${K8S_NAMESPACE} apply -f -
-                        else
-                            sed "/host: __HOST__/d" k8s/ingress.yaml | kubectl -n ${K8S_NAMESPACE} apply -f -
-                        fi
-
-                        # Wait for rollouts
-                        kubectl -n ${K8S_NAMESPACE} rollout status deploy/backend --timeout=180s
-                        kubectl -n ${K8S_NAMESPACE} rollout status deploy/frontend --timeout=180s
-                    """
-                }
-            }
-        }
-    }
-
-    post {
-        success { echo "✅ Deployed ${env.APP_NAME} ${env.IMAGE_TAG} to k8s ns ${params.K8S_NAMESPACE}" }
-        failure { echo "❌ Pipeline failed" }
-    }
+    post {
+        success { echo "✅ Deployed ${env.APP_NAME} ${env.IMAGE_TAG} to k8s ns ${params.K8S_NAMESPACE}" }
+        failure { echo "❌ Pipeline failed" }
+    }
 }
