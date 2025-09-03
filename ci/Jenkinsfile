@@ -2,10 +2,10 @@ pipeline {
     agent any
 
     parameters {
-        string(name: 'GHCR_NAMESPACE', defaultValue: 'yourorg', description: 'GHCR namespace (user/org)')
+        string(name: 'GHCR_NAMESPACE', defaultValue: 'benbach2001@gmail.com', description: 'GHCR namespace (user/org)')
         string(name: 'K8S_NAMESPACE',  defaultValue: 'rmit-store', description: 'Kubernetes namespace')
         string(name: 'HOST',           defaultValue: '', description: 'Optional DNS host (leave blank to use server IP)')
-        string(name: 'BRANCH_TO_BUILD',defaultValue: 'main', description: 'Git branch to build')
+        string(name: 'BRANCH_TO_BUILD', defaultValue: 'main', description: 'Git branch to build')
     }
 
     environment {
@@ -30,7 +30,7 @@ pipeline {
         //         }
         //     }
         // }
-        
+
         stage('Login to GHCR') {
             steps {
                 // The fix is here: The credential type is now correctly 'usernamePassword'.
@@ -71,7 +71,7 @@ pipeline {
         stage('Build & push images (BE/FE/DB)') {
             steps {
                 script {
-                    env.IMAGE_TAG = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
+                    env.IMAGE_TAG = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
 
                     sh """
                         # Backend
@@ -86,14 +86,13 @@ pipeline {
                         docker push ${FRONTEND_IMAGE}:${IMAGE_TAG}
                         docker push ${FRONTEND_IMAGE}:latest
 
-                 
                     """
                 }
-                    //    # DB
-                    //     docker build -t ${DB_IMAGE}:${IMAGE_TAG} -f Dockerfile.db .
-                    //     docker tag ${DB_IMAGE}:${IMAGE_TAG} ${DB_IMAGE}:latest
-                    //     docker push ${DB_IMAGE}:${IMAGE_TAG}
-                    //     docker push ${DB_IMAGE}:latest
+            //    # DB
+            //     docker build -t ${DB_IMAGE}:${IMAGE_TAG} -f Dockerfile.db .
+            //     docker tag ${DB_IMAGE}:${IMAGE_TAG} ${DB_IMAGE}:latest
+            //     docker push ${DB_IMAGE}:${IMAGE_TAG}
+            //     docker push ${DB_IMAGE}:latest
             }
         }
 
