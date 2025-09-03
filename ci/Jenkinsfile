@@ -139,12 +139,12 @@ pipeline {
                             --dry-run=client -o yaml | kubectl apply -f -
 
                         # DB (PVC/StatefulSet/Service)
-                        sed "s|__DB_IMAGE__|${DB_IMAGE}|g; s|__IMAGE_TAG__|${IMAGE_TAG}|g" k8s/mongo-statefulset.yaml | kubectl -n ${K8S_NAMESPACE} apply -f -
+                        sed "s|__DB_IMAGE__|${DB_IMAGE}|g; s|g" k8s/mongo-statefulset.yaml | kubectl -n ${K8S_NAMESPACE} apply -f -
                         kubectl -n ${K8S_NAMESPACE} apply -f k8s/services.yaml
 
                         # BE/FE Deployments with images+tags
-                        sed "s|__BACKEND_IMAGE__|${BACKEND_IMAGE}|g; s|__IMAGE_TAG__|${IMAGE_TAG}|g" k8s/backend-deployment.yaml | kubectl -n ${K8S_NAMESPACE} apply -f -
-                        sed "s|__FRONTEND_IMAGE__|${FRONTEND_IMAGE}|g; s|__IMAGE_TAG__|${IMAGE_TAG}|g" k8s/frontend-deployment.yaml | kubectl -n ${K8S_NAMESPACE} apply -f -
+                        sed "s|__BACKEND_IMAGE__|${BACKEND_IMAGE}|g; s|g" k8s/backend-deployment.yaml | kubectl -n ${K8S_NAMESPACE} apply -f -
+                        sed "s|__FRONTEND_IMAGE__|${FRONTEND_IMAGE}|g; s|g" k8s/frontend-deployment.yaml | kubectl -n ${K8S_NAMESPACE} apply -f -
 
                         # Ingress
                         if [ -n "${HOST}" ]; then
@@ -163,7 +163,7 @@ pipeline {
     }
 
     post {
-        success { echo "✅ Deployed ${env.APP_NAME} ${env.IMAGE_TAG} to k8s ns ${params.K8S_NAMESPACE}" }
+        success { echo "✅ Deployed ${env.APP_NAME}  to k8s ns ${params.K8S_NAMESPACE}" }
         failure { echo "❌ Pipeline failed" }
     }
 }
