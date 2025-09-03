@@ -1,6 +1,5 @@
 pipeline {
     agent any
-    options { timestamps() }
 
     parameters {
         string(name: 'GHCR_NAMESPACE', defaultValue: 'yourorg', description: 'GHCR namespace (user/org)')
