@@ -20,11 +20,27 @@ pipeline {
             steps { checkout scm }
         }
 
+        // stage('Login to GHCR') {
+        //     steps {
+        //         withCredentials([
+        //             string(credentialsId: 'GHCR_USER',  variable: 'GH_USER'),
+        //             string(credentialsId: 'GHCR_TOKEN', variable: 'GH_TOKEN')
+        //         ]) {
+        //             sh 'echo "$GH_TOKEN" | docker login ghcr.io -u "$GH_USER" --password-stdin'
+        //         }
+        //     }
+        // }
+        
         stage('Login to GHCR') {
             steps {
+                // The fix is here: The credential type is now correctly 'usernamePassword'.
+                // It maps the username and password from the same credential ID to separate variables.
                 withCredentials([
-                    string(credentialsId: 'GHCR_USER',  variable: 'GH_USER'),
-                    string(credentialsId: 'GHCR_TOKEN', variable: 'GH_TOKEN')
+                    usernamePassword(
+                        credentialsId: 'GHCR_USER',
+                        usernameVariable: 'GH_USER',
+                        passwordVariable: 'GH_TOKEN'
+                    )
                 ]) {
                     sh 'echo "$GH_TOKEN" | docker login ghcr.io -u "$GH_USER" --password-stdin'
                 }
