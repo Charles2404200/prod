@@ -1,27 +1,27 @@
 pipeline {
-    agent any
+    agent any
 
-    // parameters {
-    //     string(name: 'GHCR_NAMESPACE', defaultValue: 'benbach2001@gmail.com', description: 'GHCR namespace (user/org)')
-    //     string(name: 'K8S_NAMESPACE',  defaultValue: 'rmit-store', description: 'Kubernetes namespace')
-    //     string(name: 'HOST',           defaultValue: '', description: 'Optional DNS host (leave blank to use server IP)')
-    //     string(name: 'BRANCH_TO_BUILD', defaultValue: 'main', description: 'Git branch to build')
-    // }
+// parameters {
+//     string(name: 'GHCR_NAMESPACE', defaultValue: 'benbach2001@gmail.com', description: 'GHCR namespace (user/org)')
+//     string(name: 'K8S_NAMESPACE',  defaultValue: 'rmit-store', description: 'Kubernetes namespace')
+//     string(name: 'HOST',           defaultValue: '', description: 'Optional DNS host (leave blank to use server IP)')
+//     string(name: 'BRANCH_TO_BUILD', defaultValue: 'main', description: 'Git branch to build')
+// }
 
 
-    parameters {
-        string(name: 'GHCR_NAMESPACE', defaultValue: 'benbach2001', description: 'GHCR namespace (user/org)')
-        string(name: 'K8S_NAMESPACE',  defaultValue: 'rmit-store', description: 'Kubernetes namespace')
-        string(name: 'HOST',           defaultValue: '', description: 'Optional DNS host (leave blank to use server IP)')
-        string(name: 'BRANCH_TO_BUILD',defaultValue: 'main', description: 'Git branch to build')
-    }
+parameters {
+    string(name: 'GHCR_NAMESPACE', defaultValue: 'benbach2001', description: 'GHCR namespace (user/org)')
+    string(name: 'K8S_NAMESPACE',  defaultValue: 'rmit-store', description: 'Kubernetes namespace')
+    string(name: 'HOST',           defaultValue: '', description: 'Optional DNS host (leave blank to use server IP)')
+    string(name: 'BRANCH_TO_BUILD',defaultValue: 'main', description: 'Git branch to build')
+}
 
-    environment {
-        APP_NAME = 'rmit-store'
-        BACKEND_IMAGE  = "ghcr.io/${params.GHCR_NAMESPACE}/rmit-store-backend"
-        FRONTEND_IMAGE = "ghcr.io/${params.GHCR_NAMESPACE}/rmit-store-frontend"
-        DB_IMAGE       = "ghcr.io/${params.GHCR_NAMESPACE}/rmit-store-db"
-    }
+environment {
+    APP_NAME = 'rmit-store'
+    BACKEND_IMAGE  = "ghcr.io/${params.GHCR_NAMESPACE}/rmit-store-backend"
+    FRONTEND_IMAGE = "ghcr.io/${params.GHCR_NAMESPACE}/rmit-store-frontend"
+    DB_IMAGE       = "ghcr.io/${params.GHCR_NAMESPACE}/rmit-store-db"
+}
 
     stages {
         stage('Checkout') {
