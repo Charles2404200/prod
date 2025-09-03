@@ -26,3 +26,18 @@ scrape_configs:
       - targets:
           - "{{ hostvars['stg-front'].ansible_host }}:9113"
           - "{{ hostvars['prod-front'].ansible_host }}:9113"
+
+  - job_name: 'backend-staging'
+    scrape_interval: 5s
+    static_configs:
+      - targets: ["{{ hostvars['stg-back'].ansible_host }}:3000"]
+
+  - job_name: 'backend-prod-blue'
+    scrape_interval: 5s
+    static_configs:
+      - targets: ["{{ hostvars['prod-back'].ansible_host }}:3001"] 
+
+  - job_name: 'backend-prod-green'
+    scrape_interval: 5s
+    static_configs:
+      - targets: ["{{ hostvars['prod-back'].ansible_host }}:3002"]

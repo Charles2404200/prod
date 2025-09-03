@@ -11,6 +11,7 @@
     "test:integration": "echo 'Running integration tests...'"
   },
   "dependencies": {
+    "prom-client": "^14.0.1",
     "@faker-js/faker": "^9.9.0",
     "aws-sdk": "^2.799.0",
     "axios": "^0.21.1",
