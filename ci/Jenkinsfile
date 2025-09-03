@@ -47,6 +47,13 @@ pipeline {
             }
         }
 
+                // New stage to install Node.js and npm on the agent.
+        stage('Install tools') {
+            steps {
+                sh 'sudo apt-get update && sudo apt-get install -y nodejs npm'
+            }
+        }
+
         stage('Unit tests (backend)') {
             steps {
                 dir('server') {
