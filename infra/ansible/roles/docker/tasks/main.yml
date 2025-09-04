@@ -1,21 +1,73 @@
 ---
 - name: Ensure base packages
+  become: true
   package:
-    name: [curl, git, tar]
+    name:
+      - curl
+      - git
+      - tar
     state: present
 
-- name: Install Docker engine
-  shell: |
-    if ! command -v docker >/dev/null; then
-      curl -fsSL https://get.docker.com | sh
-    fi
+# 1) Install Docker Engine (prefer repo pkg; fall back to convenience script)
+- name: Install Docker engine via package if available
+  become: true
+  package:
+    name: docker
+    state: present
+  register: docker_pkg
+  failed_when: false
+
+- name: Install Docker via convenience script (fallback)
+  become: true
+  shell: curl -fsSL https://get.docker.com | sh
   args: { executable: /bin/bash }
+  when: docker_pkg is failed
 
+# 2) Configure daemon (log rotation, cgroup driver, faster pulls)
+- name: Write /etc/docker/daemon.json
+  become: true
+  copy:
+    dest: /etc/docker/daemon.json
+    mode: "0644"
+    content: |
+      {
+        "log-driver": "json-file",
+        "log-opts": { "max-size": "10m", "max-file": "3" },
+        "exec-opts": ["native.cgroupdriver=systemd"],
+        "max-concurrent-downloads": 10,
+        "max-concurrent-uploads": 10
+      }
+  notify: Restart docker
+
+# 3) Enable/Start Docker & allow current user
 - name: Enable & start Docker
-  service: { name: docker, state: started, enabled: true }
+  become: true
+  service:
+    name: docker
+    state: started
+    enabled: true
 
-- name: Install docker compose v2
-  get_url:
-    url: "https://github.com/docker/compose/releases/download/{{ docker_compose_version }}/docker-compose-linux-x86_64"
-    dest: /usr/local/bin/docker-compose
-    mode: '0755'
+- name: Add user to docker group
+  become: true
+  user:
+    name: "{{ docker_user }}"
+    groups: docker
+    append: true
+
+# 4) Install Docker Compose v2 (prefer package; fallback to plugin binary)
+- name: Install docker compose plugin via package if present
+  become: true
+  package:
+    name: docker-compose-plugin
+    state: present
+  register: compose_pkg
+  failed_when: false
+
+- name: Ensure CLI plugins dir exists
+  become: true
+  file:
+    path: "{{ docker_cli_plugins_dir }}"
+    state: directory
+    mode: "0755"
+
+- name: Install docker compose v2 plugin (fallback binar

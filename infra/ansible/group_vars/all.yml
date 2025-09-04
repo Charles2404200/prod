@@ -1,11 +1,34 @@
-frontend_image: "yourdockeruser/rmit-store-frontend"
-backend_image: "yourdockeruser/rmit-store-backend"
-image_tag: "latest"
+# images (CHANGE the namespace to your GitHub username/org)
+frontend_image: "ghcr.io/BennyBach1002/rmit-store-frontend"
+backend_image:  "ghcr.io/BennyBach1002/rmit-store-backend"
+db_image:       "mongo:7"
+image_tag: "latest"             # Jenkins will override with commit SHA
 
-frontend_http_port: 80
-backend_staging_port: 3000
+# where Swarm publishes services on the host
+frontend_published: 8080
+backend_published:  3000
+mongo_published:    27017       # publish only if you need external access
 
+# app env
+mongo_local: true               # use in-box Mongo (toggle false to use Atlas)
+mongo_uri: ""                   # set if mongo_local=false
+jwt_secret: "my_secret_string"
+
+# deploy
 deploy_root: "/opt/rmit"
-frontend_root_staging: "/var/www/frontend-staging"
+stack_name: "rmit"
 
-staging_domain: "98.83.164.144"
+# GHCR (set real values or vault them)
+ghcr_user: "BennyBach1002"
+ghcr_token: "YOUR_GHCR_PAT"
+
+# NGINX (host LB)
+staging_domain: "_"             # keep "_" or set your domain later
+api_rate: "20r/s"
+api_burst: 40
+api_rate_zone_size: "20m"
+
+# docker role extras
+docker_compose_version: "v2.27.0"
+docker_cli_plugins_dir: "/usr/local/lib/docker/cli-plugins"
+docker_user: "{{ ansible_user | default('ec2-user') }}"
