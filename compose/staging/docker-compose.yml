@@ -23,14 +23,14 @@ services:
   backend:
     #build:
       # context: .
-      # context: ../../  # This goes up two directories to the project root
-      # dockerfile: ci/Dockerfile.backend
-    image: ghcr.io/benbach2001/rmit-store-backend:latest
+    context: ../../  # This goes up two directories to the project root
+    dockerfile: ci/Dockerfile.backend
+      #image: ghcr.io/benbach2001/rmit-store-backend:latest
     ports:
       - "5000:5000"
     environment:
       - PORT=5000
-      - MONGO_URI=mongodb+srv://RMIT_Store:123RMIT@rmitstore.uvixzgs.mongodb.net/rmit_ecommerce
+      - MONGO_URI=mongodb+srv://RMIT_Store:123RMIT@rmitstore.uvixzgs.mongodb.net/?retryWrites=true&w=majority&appName=RMITStore
       - JWT_SECRET=my_secret_string
       #docker ip is now elastic so no need to change
       - CLIENT_URL=http://54.242.180.228:3000
@@ -41,9 +41,9 @@ services:
   frontend:
     #build:
       # context: .
-      # context: ../../  # This goes up two directories to the project root
-      # dockerfile: ci/Dockerfile.frontend
-    image: ghcr.io/benbach2001/rmit-store-frontend:latest
+    context: ../../  # This goes up two directories to the project root
+    dockerfile: ci/Dockerfile.frontend
+    #image: ghcr.io/benbach2001/rmit-store-frontend:latest
     ports:
       - "3000:80"
     environment:
