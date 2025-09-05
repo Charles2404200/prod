@@ -1,6 +1,6 @@
 pipeline {
   agent any
-  options { timestamps() }
+  //options { timestamps() }
 
   parameters {
     string(name: 'GHCR_NAMESPACE',   defaultValue: 'BennyBach1002',  description: 'GHCR namespace (GitHub user/org, lowercase, no @)')
