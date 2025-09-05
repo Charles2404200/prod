@@ -97,7 +97,7 @@ stage('Deploy with Ansible (Swarm + NGINX)') {
     withCredentials([
       usernamePassword(credentialsId: 'GHCR_USER',    usernameVariable: 'GH_USER',  passwordVariable: 'GH_TOKEN'),
       sshUserPrivateKey(credentialsId: 'ansible-ec2-key', keyFileVariable: 'CTRL_KEY'),   // Jenkins -> controller
-      sshUserPrivateKey(credentialsId: 'edge-ec2-key',    keyFileVariable: 'EDGE_KEY')    // controller -> targets
+      sshUserPrivateKey(credentialsId: 'jenkins-ec2-key',    keyFileVariable: 'EDGE_KEY')    // controller -> targets
     ]) {
       dir('ws') {
         sh '''#!/usr/bin/env bash
