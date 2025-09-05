@@ -79,53 +79,62 @@ pipeline {
 
 stage('Deploy with Ansible (Swarm + NGINX)') {
   environment {
-    // Controller == target we deploy onto
     CTRL_HOST    = '54.87.144.232'
     CTRL_USER    = 'ec2-user'
     REMOTE_WORK  = '/home/ec2-user/deploy'
-
-    // Inside the repo bundle we upload
-    INVENTORY    = 'infra/ansible/inventory.ini'
-    PLAYBOOK     = 'infra/ansible/site.yml'
-    DEPLOY_LIMIT = 'lb,staging' // both groups map to the same box
   }
   steps {
     withCredentials([
       usernamePassword(credentialsId: 'GHCR_USER', usernameVariable: 'GH_USER', passwordVariable: 'GH_TOKEN'),
       sshUserPrivateKey(credentialsId: 'ansible-ec2-key', keyFileVariable: 'CTRL_KEY')
     ]) {
-      dir('ws') {
-        sh '''#!/usr/bin/env bash
-          set -euo pipefail
-
-          echo "[Deploy] Packaging Ansible tree…"
-          test -d infra/ansible || { echo "infra/ansible not found"; exit 2; }
-          tar czf ansible.tgz infra/ansible
-
-          echo "[Deploy] Copying to controller ${CTRL_HOST}…"
-          chmod 600 "${CTRL_KEY}"
-          ssh -o StrictHostKeyChecking=no -i "${CTRL_KEY}" "${CTRL_USER}@${CTRL_HOST}" "mkdir -p '${REMOTE_WORK}'"
-          scp -o StrictHostKeyChecking=no -i "${CTRL_KEY}" ansible.tgz "${CTRL_USER}@${CTRL_HOST}:${REMOTE_WORK}/ansible.tgz"
-
-          echo "[Deploy] Running Ansible ON the controller (self-deploy)…"
-          ssh -tt -o StrictHostKeyChecking=no -i "${CTRL_KEY}" "${CTRL_USER}@${CTRL_HOST}" bash -lc "'
+      withEnv([
+        "FRONTEND_IMAGE=${env.FRONTEND_IMAGE}",
+        "BACKEND_IMAGE=${env.BACKEND_IMAGE}",
+        "IMAGE_TAG=${env.IMAGE_TAG}"
+      ]) {
+        dir('ws') {
+          sh '''#!/usr/bin/env bash
             set -euo pipefail
 
-            # Ensure Ansible
-            if ! command -v ansible-playbook >/dev/null 2>&1; then
-              if command -v yum >/dev/null 2>&1; then
-                sudo yum -y install ansible python3 || true
-              elif command -v apt-get >/dev/null 2>&1; then
-                sudo apt-get update && sudo apt-get install -y ansible python3
+            echo "[Deploy] Package Ansible tree"
+            test -d infra/ansible || { echo "infra/ansible not found"; exit 2; }
+            tar czf ansible.tgz infra/ansible
+
+            echo "[Deploy] Copy to controller ${CTRL_HOST}"
+            chmod 600 "${CTRL_KEY}"
+            ssh -o StrictHostKeyChecking=no -i "${CTRL_KEY}" "${CTRL_USER}@${CTRL_HOST}" "mkdir -p '${REMOTE_WORK}'"
+            scp -o StrictHostKeyChecking=no -i "${CTRL_KEY}" ansible.tgz "${CTRL_USER}@${CTRL_HOST}:${REMOTE_WORK}/ansible.tgz"
+
+            echo "[Deploy] Run Ansible ON controller"
+            ssh -tt -o StrictHostKeyChecking=no -i "${CTRL_KEY}" "${CTRL_USER}@${CTRL_HOST}" bash -lc '
+              set -euo pipefail
+
+              INVENTORY="infra/ansible/inventory.ini"
+              PLAYBOOK="infra/ansible/site.yml"
+              DEPLOY_LIMIT="lb,staging"
+
+              FRONTEND_IMAGE="'"${FRONTEND_IMAGE}"'"
+              BACKEND_IMAGE="'"${BACKEND_IMAGE}"'"
+              IMAGE_TAG="'"${IMAGE_TAG}"'"
+              GH_USER="'"${GH_USER}"'"
+              GH_TOKEN="'"${GH_TOKEN}"'"
+
+              # Ensure Ansible
+              if ! command -v ansible-playbook >/dev/null 2>&1; then
+                if command -v yum >/dev/null 2>&1; then
+                  sudo yum -y install ansible python3 || true
+                elif command -v apt-get >/dev/null 2>&1; then
+                  sudo apt-get update && sudo apt-get install -y ansible python3
+                fi
               fi
-            fi
 
-            cd ${REMOTE_WORK}
-            rm -rf infra || true
-            tar xzf ansible.tgz
+              cd "'"${REMOTE_WORK}"'"
+              rm -rf infra || true
+              tar xzf ansible.tgz
 
-            # Force inventory to deploy locally on this host
-            cat > ${INVENTORY} <<EOF
+              # Force inventory to localhost
+              cat > "${INVENTORY}" <<EOF
 [lb]
 edge-1 ansible_host=127.0.0.1 ansible_connection=local
 
@@ -137,65 +146,69 @@ ansible_user=ec2-user
 ansible_python_interpreter=/usr/bin/python3
 EOF
 
-            # group_vars override to make nginx serve http://54.87.144.232/
-            mkdir -p infra/ansible/group_vars
-            cat > infra/ansible/group_vars/all.yml <<YML
+              # Make nginx serve http://54.87.144.232/
+              mkdir -p infra/ansible/group_vars
+              cat > infra/ansible/group_vars/all.yml <<YML
 frontend_image: "${FRONTEND_IMAGE}"
 backend_image:  "${BACKEND_IMAGE}"
 image_tag:      "${IMAGE_TAG}"
 
-# ports the roles expect (keep your role defaults if different)
 frontend_http_port: 80
 backend_staging_port: 3000
-
-# ensure nginx uses this IP as server_name
 staging_domain: "54.87.144.232"
 YML
 
-            # Optional: init Docker Swarm on first run
-            if command -v docker >/dev/null 2>&1; then
-              if ! docker info --format \"{{.Swarm.LocalNodeState}}\" 2>/dev/null | grep -qi active; then
-                ADVERTISE=$(curl -s ifconfig.me || hostname -I | awk \"{print \\$1}\")
-                sudo docker swarm init --advertise-addr \"$ADVERTISE\" || true
+              # Init Docker Swarm if not active (safe with set -u)
+              if command -v docker >/dev/null 2>&1; then
+                if ! docker info --format "{{.Swarm.LocalNodeState}}" 2>/dev/null | grep -qi active; then
+                  ADVERTISE=""
+                  # Try public IP first, then first local IP, then loopback
+                  ADVERTISE="$(curl -s --max-time 3 ifconfig.me || true)"
+                  if [ -z "${ADVERTISE}" ]; then
+                    ADVERTISE="$(hostname -I 2>/dev/null | awk '"'"'{print $1}'"'"' || true)"
+                  fi
+                  [ -z "${ADVERTISE}" ] && ADVERTISE="127.0.0.1"
+                  sudo docker swarm init --advertise-addr "${ADVERTISE}" || true
+                fi
               fi
-            fi
 
-            # Collections if defined
-            if [ -f infra/ansible/requirements.yml ]; then
-              ansible-galaxy collection install -p ./collections -r infra/ansible/requirements.yml
-              export ANSIBLE_COLLECTIONS_PATHS=\"./collections:$HOME/.ansible/collections:/usr/share/ansible/collections\"
-            fi
+              # Collections (optional)
+              if [ -f infra/ansible/requirements.yml ]; then
+                ansible-galaxy collection install -p ./collections -r infra/ansible/requirements.yml
+                export ANSIBLE_COLLECTIONS_PATHS="./collections:$HOME/.ansible/collections:/usr/share/ansible/collections"
+              fi
 
-            export ANSIBLE_STDOUT_CALLBACK=yaml
-            export ANSIBLE_HOST_KEY_CHECKING=False
+              export ANSIBLE_STDOUT_CALLBACK=yaml
+              export ANSIBLE_HOST_KEY_CHECKING=False
 
-            # Run the playbook locally (inventory already points to local)
-            ansible-playbook -i ${INVENTORY} ${PLAYBOOK} \\
-              -l ${DEPLOY_LIMIT} \\
-              -e env=staging \\
-              -e backend_image=${BACKEND_IMAGE} \\
-              -e frontend_image=${FRONTEND_IMAGE} \\
-              -e image_tag=${IMAGE_TAG} \\
-              -e ghcr_user=${GH_USER} \\
-              -e ghcr_token=${GH_TOKEN} \\
-              -e docker_user=ec2-user \\
-              -e docker_cli_plugins_dir=/usr/libexec/docker/cli-plugins \\
-              -e docker_compose_version=v2.27.0
-          '"
+              # Run playbook
+              ansible-playbook -i "${INVENTORY}" "${PLAYBOOK}" \
+                -l "${DEPLOY_LIMIT}" \
+                -e env=staging \
+                -e "backend_image=${BACKEND_IMAGE}" \
+                -e "frontend_image=${FRONTEND_IMAGE}" \
+                -e "image_tag=${IMAGE_TAG}" \
+                -e "ghcr_user=${GH_USER}" \
+                -e "ghcr_token=${GH_TOKEN}" \
+                -e "docker_user=ec2-user" \
+                -e "docker_cli_plugins_dir=/usr/libexec/docker/cli-plugins" \
+                -e "docker_compose_version=v2.27.0"
+            '
 
-          echo "[Verify] Checking site is up at http://54.87.144.232/ …"
-          for i in {1..30}; do
-            code=$(curl -sS -o /dev/null -w "%{http_code}" http://54.87.144.232/ || true)
-            if [[ "$code" =~ ^2|3 ]]; then
-              echo "OK: HTTP $code"
-              exit 0
-            fi
-            echo "Waiting (attempt $i): got $code"
-            sleep 2
-          done
-          echo "ERROR: site did not become healthy at http://54.87.144.232/"
-          exit 1
-        '''
+            echo "[Verify] http://54.87.144.232/ …"
+            for i in {1..30}; do
+              code=$(curl -sS -o /dev/null -w "%{http_code}" http://54.87.144.232/ || true)
+              if [[ "$code" =~ ^2|3 ]]; then
+                echo "OK: HTTP $code"
+                exit 0
+              fi
+              echo "Waiting (attempt $i): got $code"
+              sleep 2
+            done
+            echo "ERROR: site not healthy at http://54.87.144.232/"
+            exit 1
+          '''
+        }
       }
     }
   }
