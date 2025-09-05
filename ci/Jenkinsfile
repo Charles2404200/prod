@@ -3,8 +3,8 @@ pipeline {
   options { skipDefaultCheckout(true) }
 
   parameters {
-    string(name: 'GHCR_NAMESPACE',  defaultValue: 'BennyBach1002', description: 'GitHub user/org (will be forced lowercase)')
-    string(name: 'BRANCH_TO_BUILD', defaultValue: 'main',          description: 'Git branch to build (e.g. main or ansible-prod)')
+    string(name: 'GHCR_NAMESPACE',  defaultValue: 'BennyBach1002', description: 'GitHub user/org (forced lowercase for Docker)')
+    string(name: 'BRANCH_TO_BUILD', defaultValue: 'ansible-prod',  description: 'Git branch to build')
     string(name: 'DEPLOY_LIMIT',    defaultValue: 'lb,prod',       description: 'Ansible --limit (e.g. "lb,staging" or "lb,prod")')
   }
 
@@ -37,17 +37,16 @@ pipeline {
       }
     }
 
-    stage('Build & Push Images (BE/FE/DB)') {
+    stage('Build & Push Images (BE/FE only)') {
       steps {
         dir('ws') {
           script {
-            // force lowercase and strip invalid chars for Docker repo names
-            def ns  = params.GHCR_NAMESPACE.toLowerCase().replaceAll(/[^a-z0-9-]/, '')
+            // sanitize namespace -> lowercase, drop invalid chars
+            def ns = params.GHCR_NAMESPACE.toLowerCase().replaceAll(/[^a-z0-9-]/, '')
             if (ns != params.GHCR_NAMESPACE) {
               echo "NOTE: sanitized GHCR namespace '${params.GHCR_NAMESPACE}' -> '${ns}'"
             }
 
-            // compute image names as local vars (don’t rely on env overwrites)
             def BACKEND  = "ghcr.io/${ns}/rmit-store-backend"
             def FRONTEND = "ghcr.io/${ns}/rmit-store-frontend"
             def TAG      = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
@@ -70,9 +69,10 @@ pipeline {
               docker push ${FRONTEND}:${TAG}
               docker push ${FRONTEND}:latest
 
+              docker image prune -f || true
             """
 
-            // stash values for deploy stage
+            // expose to next stage
             env.IMAGE_TAG      = TAG
             env.BACKEND_IMAGE  = BACKEND
             env.FRONTEND_IMAGE = FRONTEND
@@ -99,15 +99,12 @@ pipeline {
                 fi
               fi
 
-              # optional collections
               test -f infra/ansible/requirements.yml && ansible-galaxy collection install -r infra/ansible/requirements.yml || true
 
-              # pass images + tag to override group_vars
               ansible-playbook -i ${INVENTORY} ${PLAYBOOK} \\
                 -l ${params.DEPLOY_LIMIT} \\
                 -e backend_image=${BACKEND_IMAGE} \\
                 -e frontend_image=${FRONTEND_IMAGE} \\
-                -e db_image=${DB_IMAGE} \\
                 -e image_tag=${IMAGE_TAG} \\
                 -e ghcr_user=${GH_USER} \\
                 -e ghcr_token=${GH_TOKEN}
@@ -119,7 +116,7 @@ pipeline {
   }
 
   post {
-    success { echo "✅ ${env.APP_NAME} ${env.IMAGE_TAG} built & deployed (Swarm + NGINX)." }
+    success { echo "✅ ${env.APP_NAME} ${env.IMAGE_TAG} built (BE/FE) & deployed via Swarm + NGINX." }
     failure { echo "❌ Pipeline failed. See console log." }
   }
 }
