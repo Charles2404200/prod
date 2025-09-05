@@ -80,50 +80,86 @@ pipeline {
 stage('Deploy with Ansible (Swarm + NGINX)') {
   steps {
     withCredentials([
-      usernamePassword(credentialsId: 'GHCR_USER',
-                       usernameVariable: 'GH_USER',
-                       passwordVariable: 'GH_TOKEN'),
-      file(credentialsId: 'edge-key-pem', variable: 'EDGE_PEM_FILE') // <-- your kube.pem
+      usernamePassword(
+        credentialsId: 'GHCR_USER',       // GHCR username/password (or PAT as password)
+        usernameVariable: 'GH_USER',
+        passwordVariable: 'GH_TOKEN'
+      ),
+      sshUserPrivateKey(
+        credentialsId: 'ansible-ec2-key', // SSH key for your target EC2s
+        keyFileVariable: 'ANSIBLE_KEY',
+        usernameVariable: 'ANSIBLE_SSH_USER' // typically "ec2-user"
+      )
     ]) {
       dir('ws') {
-        sh '''
-          set -euo pipefail
+        sh '''#!/usr/bin/env bash
+set -euo pipefail
 
-          # Set paths/targets (adjust if your files differ)
-          INVENTORY="infra/ansible/inventory.ini"
-          PLAYBOOK="infra/ansible/site.yml"
-          DEPLOY_LIMIT="lb,staging"   # or "lb,prod" for prod
+# Paths in your repo
+INVENTORY="${INVENTORY:-infra/ansible/inventory.ini}"
+PLAYBOOK="${PLAYBOOK:-infra/ansible/site.yml}"
 
-          # Ensure Ansible present on the Jenkins node
-          if ! command -v ansible-playbook >/dev/null 2>&1; then
-            if command -v yum >/dev/null 2>&1; then
-              sudo yum install -y ansible
-            elif command -v apt-get >/dev/null 2>&1; then
-              sudo apt-get update && sudo apt-get install -y ansible
-            else
-              echo "Ansible not found and no apt/yum available"; exit 1
-            fi
-          fi
+# Limit to LB (nginx) and staging app nodes
+DEPLOY_LIMIT="${DEPLOY_LIMIT:-lb,staging}"
 
-          # Install collections if defined
-          test -f infra/ansible/requirements.yml && \
-            ansible-galaxy collection install -r infra/ansible/requirements.yml || true
+# Vars consumed by your roles/group_vars
+EXTRA_VARS="
+  backend_image=${BACKEND_IMAGE}
+  frontend_image=${FRONTEND_IMAGE}
+  image_tag=${IMAGE_TAG}
+  env=staging
+  ghcr_user=${GH_USER}
+  ghcr_token=${GH_TOKEN}
+  docker_user=${ANSIBLE_SSH_USER}
+  docker_cli_plugins_dir=/usr/libexec/docker/cli-plugins
+  docker_compose_version=v2.27.0
+"
 
-          # SSH key for targets
-          chmod 600 "$EDGE_PEM_FILE"
+echo "→ Using inventory: $INVENTORY"
+echo "→ Playbook:        $PLAYBOOK"
+echo "→ Limit hosts:     $DEPLOY_LIMIT"
+echo "→ Images:"
+echo "   - ${BACKEND_IMAGE}:${IMAGE_TAG}"
+echo "   - ${FRONTEND_IMAGE}:${IMAGE_TAG}"
 
-          # Run the play
-          ANSIBLE_HOST_KEY_CHECKING=False \
-          ansible-playbook -i "$INVENTORY" "$PLAYBOOK" \
-            -l "$DEPLOY_LIMIT" \
-            --private-key "$EDGE_PEM_FILE" \
-            -e "backend_image=${BACKEND_IMAGE}" \
-            -e "frontend_image=${FRONTEND_IMAGE}" \
-            -e "image_tag=${IMAGE_TAG}" \
-            -e "env=staging" \
-            -e "ghcr_user=${GH_USER}" \
-            -e "ghcr_token=${GH_TOKEN}"
-        '''
+# Ensure Ansible present
+if ! command -v ansible-playbook >/dev/null 2>&1; then
+  if command -v yum >/dev/null 2>&1; then
+    sudo yum install -y ansible
+  elif command -v apt-get >/dev/null 2>&1; then
+    sudo apt-get update && sudo apt-get install -y ansible python3-pip
+  else
+    echo "Ansible not found and no apt/yum available"; exit 1
+  fi
+fi
+
+# Install Galaxy collections if declared (e.g., community.docker)
+if [[ -f infra/ansible/requirements.yml ]]; then
+  ansible-galaxy collection install -r infra/ansible/requirements.yml -p ./collections
+fi
+
+chmod 600 "$ANSIBLE_KEY"
+
+# (Optional) quick SSH reachability check against one host from inventory
+# awk pulls first non-empty, non-header host from the [staging] or [lb] groups
+TARGET_HOST="$(awk '/^\\[staging\\]/{flag=1;next}/^\\[/{flag=0}flag && NF{print $1; exit}' "$INVENTORY" || true)"
+if [[ -n "${TARGET_HOST}" ]]; then
+  echo "→ SSH check to ${TARGET_HOST} ..."
+  ssh -o StrictHostKeyChecking=no -i "$ANSIBLE_KEY" "${ANSIBLE_SSH_USER}@${TARGET_HOST##*=}" 'hostname' || true
+fi
+
+# Run the playbook
+ANSIBLE_HOST_KEY_CHECKING=False \
+ANSIBLE_COLLECTIONS_PATHS="./collections:$HOME/.ansible/collections:/usr/share/ansible/collections" \
+ansible-playbook -i "$INVENTORY" "$PLAYBOOK" \
+  -l "$DEPLOY_LIMIT" \
+  --private-key "$ANSIBLE_KEY" \
+  -e "$EXTRA_VARS" \
+  -e "ansible_user=${ANSIBLE_SSH_USER}" \
+  -e "ansible_ssh_common_args='-o StrictHostKeyChecking=no'"
+
+echo "✓ Ansible deploy step completed."
+'''
       }
     }
   }
