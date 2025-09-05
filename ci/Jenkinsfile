@@ -1,20 +1,17 @@
 pipeline {
   agent any
-  options { skipDefaultCheckout(true) } // we checkout into ws/
+  options { skipDefaultCheckout(true) }
 
   parameters {
-    string(name: 'GHCR_NAMESPACE',  defaultValue: 'BennyBach1002', description: 'GHCR namespace (GitHub user/org, NOT an email)')
-    string(name: 'BRANCH_TO_BUILD', defaultValue: 'ansible-prod',  description: 'Git branch to build')
+    string(name: 'GHCR_NAMESPACE',  defaultValue: 'BennyBach1002', description: 'GitHub user/org (will be forced lowercase)')
+    string(name: 'BRANCH_TO_BUILD', defaultValue: 'main',          description: 'Git branch to build (e.g. main or ansible-prod)')
     string(name: 'DEPLOY_LIMIT',    defaultValue: 'lb,prod',       description: 'Ansible --limit (e.g. "lb,staging" or "lb,prod")')
   }
 
   environment {
-    APP_NAME   = 'rmit-store'
-    INVENTORY  = 'infra/ansible/inventory.ini'
-    PLAYBOOK   = 'infra/ansible/site.yml'
-    BACKEND_IMAGE  = "ghcr.io/${params.GHCR_NAMESPACE}/rmit-store-backend"
-    FRONTEND_IMAGE = "ghcr.io/${params.GHCR_NAMESPACE}/rmit-store-frontend"
-    DB_IMAGE       = "ghcr.io/${params.GHCR_NAMESPACE}/rmit-store-db"
+    APP_NAME  = 'rmit-store'
+    INVENTORY = 'infra/ansible/inventory.ini'
+    PLAYBOOK  = 'infra/ansible/site.yml'
   }
 
   stages {
@@ -32,7 +29,9 @@ pipeline {
 
     stage('Login to GHCR (controller)') {
       steps {
-        withCredentials([ usernamePassword(credentialsId: 'GHCR_USER', usernameVariable: 'GH_USER', passwordVariable: 'GH_TOKEN') ]) {
+        withCredentials([ usernamePassword(credentialsId: 'GHCR_USER',
+                                           usernameVariable: 'GH_USER',
+                                           passwordVariable: 'GH_TOKEN') ]) {
           sh 'echo "$GH_TOKEN" | docker login ghcr.io -u "$GH_USER" --password-stdin'
         }
       }
@@ -42,35 +41,44 @@ pipeline {
       steps {
         dir('ws') {
           script {
-            def ns = params.GHCR_NAMESPACE.toLowerCase().replaceAll(/[^a-z0-9-]/, '')
-            if (ns != params.GHCR_NAMESPACE) echo "NOTE: sanitized GHCR namespace '${params.GHCR_NAMESPACE}' -> '${ns}'"
-            env.BACKEND_IMAGE  = "ghcr.io/${ns}/rmit-store-backend"
-            env.FRONTEND_IMAGE = "ghcr.io/${ns}/rmit-store-frontend"
-            env.DB_IMAGE       = "ghcr.io/${ns}/rmit-store-db"
-            env.IMAGE_TAG      = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
+            // force lowercase and strip invalid chars for Docker repo names
+            def ns  = params.GHCR_NAMESPACE.toLowerCase().replaceAll(/[^a-z0-9-]/, '')
+            if (ns != params.GHCR_NAMESPACE) {
+              echo "NOTE: sanitized GHCR namespace '${params.GHCR_NAMESPACE}' -> '${ns}'"
+            }
+
+            // compute image names as local vars (don’t rely on env overwrites)
+            def BACKEND  = "ghcr.io/${ns}/rmit-store-backend"
+            def FRONTEND = "ghcr.io/${ns}/rmit-store-frontend"
+            def DBIMG    = "ghcr.io/${ns}/rmit-store-db"
+            def TAG      = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
 
             sh """
               set -e
-              echo ">> Backend:  ${BACKEND_IMAGE}:${IMAGE_TAG}"
-              docker build -t ${BACKEND_IMAGE}:${IMAGE_TAG}  -f ci/Dockerfile.backend .
-              docker tag   ${BACKEND_IMAGE}:${IMAGE_TAG}     ${BACKEND_IMAGE}:latest
-              docker push  ${BACKEND_IMAGE}:${IMAGE_TAG}
-              docker push  ${BACKEND_IMAGE}:latest
+              echo "TAG=${TAG}"
+              echo "BE=${BACKEND}"
+              echo "FE=${FRONTEND}"
+              echo "DB=${DBIMG}"
 
-              echo ">> Frontend: ${FRONTEND_IMAGE}:${IMAGE_TAG}"
-              docker build -t ${FRONTEND_IMAGE}:${IMAGE_TAG} -f ci/Dockerfile.frontend .
-              docker tag   ${FRONTEND_IMAGE}:${IMAGE_TAG}    ${FRONTEND_IMAGE}:latest
-              docker push  ${FRONTEND_IMAGE}:${IMAGE_TAG}
-              docker push  ${FRONTEND_IMAGE}:latest
+              # Backend
+              docker build --pull --no-cache -t ${BACKEND}:${TAG}  -f ci/Dockerfile.backend .
+              docker tag ${BACKEND}:${TAG} ${BACKEND}:latest
+              docker push ${BACKEND}:${TAG}
+              docker push ${BACKEND}:latest
 
-              echo ">> DB:       ${DB_IMAGE}:${IMAGE_TAG}"
-              docker build -t ${DB_IMAGE}:${IMAGE_TAG} -f Dockerfile.db .
-              docker tag   ${DB_IMAGE}:${IMAGE_TAG}    ${DB_IMAGE}:latest
-              docker push  ${DB_IMAGE}:${IMAGE_TAG}
-              docker push  ${DB_IMAGE}:latest
+              # Frontend
+              docker build --pull --no-cache -t ${FRONTEND}:${TAG} -f ci/Dockerfile.frontend .
+              docker tag ${FRONTEND}:${TAG} ${FRONTEND}:latest
+              docker push ${FRONTEND}:${TAG}
+              docker push ${FRONTEND}:latest
 
-              docker image prune -f || true
             """
+
+            // stash values for deploy stage
+            env.IMAGE_TAG      = TAG
+            env.BACKEND_IMAGE  = BACKEND
+            env.FRONTEND_IMAGE = FRONTEND
+            env.DB_IMAGE       = DBIMG
           }
         }
       }
@@ -78,7 +86,9 @@ pipeline {
 
     stage('Deploy with Ansible (Swarm + NGINX)') {
       steps {
-        withCredentials([ usernamePassword(credentialsId: 'GHCR_USER', usernameVariable: 'GH_USER', passwordVariable: 'GH_TOKEN') ]) {
+        withCredentials([ usernamePassword(credentialsId: 'GHCR_USER',
+                                           usernameVariable: 'GH_USER',
+                                           passwordVariable: 'GH_TOKEN') ]) {
           dir('ws') {
             sh """
               set -e
@@ -92,10 +102,15 @@ pipeline {
                 fi
               fi
 
+              # optional collections
               test -f infra/ansible/requirements.yml && ansible-galaxy collection install -r infra/ansible/requirements.yml || true
 
+              # pass images + tag to override group_vars
               ansible-playbook -i ${INVENTORY} ${PLAYBOOK} \\
                 -l ${params.DEPLOY_LIMIT} \\
+                -e backend_image=${BACKEND_IMAGE} \\
+                -e frontend_image=${FRONTEND_IMAGE} \\
+                -e db_image=${DB_IMAGE} \\
                 -e image_tag=${IMAGE_TAG} \\
                 -e ghcr_user=${GH_USER} \\
                 -e ghcr_token=${GH_TOKEN}
@@ -107,7 +122,7 @@ pipeline {
   }
 
   post {
-    success { echo "✅ ${env.APP_NAME} ${env.IMAGE_TAG} built from branch ${params.BRANCH_TO_BUILD} & deployed via Docker Swarm + NGINX." }
+    success { echo "✅ ${env.APP_NAME} ${env.IMAGE_TAG} built & deployed (Swarm + NGINX)." }
     failure { echo "❌ Pipeline failed. See console log." }
   }
 }
