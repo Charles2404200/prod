@@ -92,7 +92,7 @@ stage('Deploy with Ansible (Swarm + NGINX)') {
   steps {
     withCredentials([
       usernamePassword(credentialsId: 'GHCR_USER', usernameVariable: 'GH_USER', passwordVariable: 'GH_TOKEN'),
-      sshUserPrivateKey(credentialsId: 'kube-pem', keyFileVariable: 'CTRL_KEY')
+      sshUserPrivateKey(credentialsId: 'ansible-ec2-key', keyFileVariable: 'CTRL_KEY')
     ]) {
       dir('ws') {
         sh '''#!/usr/bin/env bash
