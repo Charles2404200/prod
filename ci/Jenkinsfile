@@ -1,167 +1,112 @@
 pipeline {
-    agent any
+  agent any
+  options { timestamps() }
 
-    parameters {
-        string(name: 'GHCR_NAMESPACE', defaultValue: 'benbach2001@gmail.com', description: 'GHCR namespace (user/org)')
-        string(name: 'K8S_NAMESPACE',  defaultValue: 'rmit-store', description: 'Kubernetes namespace')
-        string(name: 'HOST',           defaultValue: '', description: 'Optional DNS host (leave blank to use server IP)')
-        string(name: 'BRANCH_TO_BUILD', defaultValue: 'main', description: 'Git branch to build')
+  parameters {
+    string(name: 'GHCR_NAMESPACE', defaultValue: 'BennyBach1002', description: 'GHCR namespace (GitHub user/org, lowercase, no @)')
+    string(name: 'BRANCH_TO_BUILD', defaultValue: 'main', description: 'Git branch to build')
+    string(name: 'DEPLOY_LIMIT', defaultValue: 'lb,staging', description: 'Ansible --limit hosts (comma-separated)')
+  }
+
+  environment {
+    APP_NAME = 'rmit-store'
+    // defaults (will be overwritten after we sanitize namespace)
+    BACKEND_IMAGE  = "ghcr.io/${params.GHCR_NAMESPACE}/rmit-store-backend"
+    FRONTEND_IMAGE = "ghcr.io/${params.GHCR_NAMESPACE}/rmit-store-frontend"
+    DB_IMAGE       = "ghcr.io/${params.GHCR_NAMESPACE}/rmit-store-db"
+    INVENTORY      = 'infra/ansible/inventory.ini'
+    PLAYBOOK       = 'infra/ansible/site.yml'
+  }
+
+  stages {
+
+    stage('Checkout') {
+      steps {
+        checkout scm
+        sh "git checkout ${params.BRANCH_TO_BUILD}"
+      }
     }
 
-    environment {
-        APP_NAME = 'rmit-store'
-        BACKEND_IMAGE  = "ghcr.io/${params.GHCR_NAMESPACE}/rmit-store-backend"
-        FRONTEND_IMAGE = "ghcr.io/${params.GHCR_NAMESPACE}/rmit-store-frontend"
-        DB_IMAGE       = "ghcr.io/${params.GHCR_NAMESPACE}/rmit-store-db"
-    }
-
-    stages {
-        stage('Checkout') {
-            steps { checkout scm }
+    stage('Login to GHCR') {
+      steps {
+        withCredentials([ usernamePassword(credentialsId: 'GHCR_USER', usernameVariable: 'GH_USER', passwordVariable: 'GH_TOKEN') ]) {
+          sh 'echo "$GH_TOKEN" | docker login ghcr.io -u "$GH_USER" --password-stdin'
         }
-
-        // stage('Login to GHCR') {
-        //     steps {
-        //         withCredentials([
-        //             string(credentialsId: 'GHCR_USER',  variable: 'GH_USER'),
-        //             string(credentialsId: 'GHCR_TOKEN', variable: 'GH_TOKEN')
-        //         ]) {
-        //             sh 'echo "$GH_TOKEN" | docker login ghcr.io -u "$GH_USER" --password-stdin'
-        //         }
-        //     }
-        // }
-
-        stage('Login to GHCR') {
-            steps {
-                // The fix is here: The credential type is now correctly 'usernamePassword'.
-                // It maps the username and password from the same credential ID to separate variables.
-                withCredentials([
-                    usernamePassword(
-                        credentialsId: 'GHCR_USER',
-                        usernameVariable: 'GH_USER',
-                        passwordVariable: 'GH_TOKEN'
-                    )
-                ]) {
-                    sh 'echo "$GH_TOKEN" | docker login ghcr.io -u "$GH_USER" --password-stdin'
-                }
-            }
-        }
-
-        // stage('Unit tests (backend)') {
-        //     steps {
-        //         // The fix is here: Running npm commands inside a Node.js Docker container.
-        //         docker.image('node:18').inside {
-        //             dir('server') {
-        //                 sh 'npm ci || npm install'
-        //                 sh 'npm test || echo "no tests yet"'
-        //             }
-        //         }
-        //     }
-        // }
-
-        stage('Build & push images (BE/FE/DB)') {
-            steps {
-                script {
-                    // sanitize namespace: lowercase, remove anything not a-z0-9-
-                    def ns = params.GHCR_NAMESPACE.toLowerCase().replaceAll(/[^a-z0-9-]/, '')
-                    env.BACKEND_IMAGE  = "ghcr.io/${ns}/rmit-store-backend"
-                    env.FRONTEND_IMAGE = "ghcr.io/${ns}/rmit-store-frontend"
-                    env.DB_IMAGE       = "ghcr.io/${ns}/rmit-store-db"
-                    env.IMAGE_TAG      = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
-
-                    withCredentials([string(credentialsId: 'GH_CR_FINE_GRAINED_TOKEN', variable: 'GH_TOKEN')]) {
-                        sh """
-                        echo "$GH_TOKEN" | docker login ghcr.io -u BennyBach1002 --password-stdin
-
-                        docker build -t ${BACKEND_IMAGE}:${IMAGE_TAG}  -f ci/Dockerfile.backend .
-                        docker tag ${BACKEND_IMAGE}:${IMAGE_TAG}  ${BACKEND_IMAGE}:latest
-                        docker push ${BACKEND_IMAGE}:${IMAGE_TAG}
-                        docker push ${BACKEND_IMAGE}:latest
-
-                        docker build -t ${FRONTEND_IMAGE}:${IMAGE_TAG} -f ci/Dockerfile.frontend .
-                        docker tag ${FRONTEND_IMAGE}:${IMAGE_TAG} ${FRONTEND_IMAGE}:latest
-                        docker push ${FRONTEND_IMAGE}:${IMAGE_TAG}
-                        docker push ${FRONTEND_IMAGE}:latest
-
-                        docker build -t ${DB_IMAGE}:${IMAGE_TAG} -f Dockerfile.db .
-                        docker tag ${DB_IMAGE}:${IMAGE_TAG} ${DB_IMAGE}:latest
-                        docker push ${DB_IMAGE}:${IMAGE_TAG}
-                        docker push ${DB_IMAGE}:latest
-                        """
-                    }
-                }
-            }
-        }
-
-        // stage('Deploy to Kubernetes') {
-        //     steps {
-        //         withCredentials([
-        //             file(credentialsId: 'KUBECONFIG_STAGING', variable: 'KCONF'),
-        //             string(credentialsId: 'JWT_SECRET', variable: 'JWT_SECRET'),
-        //             string(credentialsId: 'MONGO_URI', variable: 'MONGO_URI') // optional for Atlas
-        //         ]) 
-        //         {
-        //             sh """
-        //                 export KUBECONFIG="$KCONF"
-
-        //                # Kubectl setup
-        //                 if ! command -v kubectl >/dev/null 2>&1; then
-        //                     # Download kubectl
-        //                     curl -LO https://storage.googleapis.com/kubernetes-release/release/\$(curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt)/bin/linux/amd64/kubectl     
-        //                     # Make it executable and add the current directory to the PATH
-        //                     chmod +x kubectl
-        //                     export PATH=\$PATH:.
-        //                     echo "kubectl installed successfully."
-        //                 fi
-
-        //                 # Namespace
-        //                 kubectl get ns ${K8S_NAMESPACE} >/dev/null 2>&1 || kubectl create ns ${K8S_NAMESPACE}
-
-        //                 # App secrets
-        //                 if [ -n "${MONGO_URI}" ]; then
-        //                     kubectl -n ${K8S_NAMESPACE} create secret generic app-secrets \\
-        //                         --from-literal=JWT_SECRET="${JWT_SECRET}" \\
-        //                         --from-literal=MONGO_URI="${MONGO_URI}" \\
-        //                         --dry-run=client -o yaml | kubectl apply -f -
-        //                 else
-        //                     kubectl -n ${K8S_NAMESPACE} create secret generic app-secrets \\
-        //                         --from-literal=JWT_SECRET="${JWT_SECRET}" \\
-        //                         --dry-run=client -o yaml | kubectl apply -f -
-        //                 fi
-
-        //                 # Mongo secrets (for in-cluster DB)
-        //                 kubectl -n ${K8S_NAMESPACE} create secret generic mongo-auth \\
-        //                     --from-literal=MONGO_INITDB_ROOT_USERNAME=rmitadmin \\
-        //                     --from-literal=MONGO_INITDB_ROOT_PASSWORD=rmitpass \\
-        //                     --from-literal=MONGO_DB=rmit_ecommerce \\
-        //                     --dry-run=client -o yaml | kubectl apply -f -
-
-        //                 # DB (PVC/StatefulSet/Service)
-        //                 sed "s|__DB_IMAGE__|${DB_IMAGE}|g; s|g" k8s/mongo-statefulset.yaml | kubectl -n ${K8S_NAMESPACE} apply -f -
-        //                 kubectl -n ${K8S_NAMESPACE} apply -f k8s/services.yaml
-
-        //                 # BE/FE Deployments with images+tags
-        //                 sed "s|__BACKEND_IMAGE__|${BACKEND_IMAGE}|g; s|g" k8s/backend-deployment.yaml | kubectl -n ${K8S_NAMESPACE} apply -f -
-        //                 sed "s|__FRONTEND_IMAGE__|${FRONTEND_IMAGE}|g; s|g" k8s/frontend-deployment.yaml | kubectl -n ${K8S_NAMESPACE} apply -f -
-
-        //                 # Ingress
-        //                 if [ -n "${HOST}" ]; then
-        //                     sed "s|__HOST__|${HOST}|g" k8s/ingress.yaml | kubectl -n ${K8S_NAMESPACE} apply -f -
-        //                 else
-        //                     sed "/host: __HOST__/d" k8s/ingress.yaml | kubectl -n ${K8S_NAMESPACE} apply -f -
-        //                 fi
-
-        //                 # Wait for rollouts
-        //                 kubectl -n ${K8S_NAMESPACE} rollout status deploy/backend --timeout=180s
-        //                 kubectl -n ${K8S_NAMESPACE} rollout status deploy/frontend --timeout=180s
-        //             """
-        //         }
-        //     }
-        // }
+      }
     }
 
-    post {
-        success { echo "✅ Deployed ${env.APP_NAME}  to k8s ns ${params.K8S_NAMESPACE}" }
-        failure { echo "❌ Pipeline failed" }
+    stage('Build & Push Images (BE/FE/DB)') {
+      steps {
+        script {
+          // sanitize namespace (no @, lowercase, only a-z0-9-)
+          def ns = params.GHCR_NAMESPACE.toLowerCase().replaceAll(/[^a-z0-9-]/, '')
+          env.BACKEND_IMAGE  = "ghcr.io/${ns}/rmit-store-backend"
+          env.FRONTEND_IMAGE = "ghcr.io/${ns}/rmit-store-frontend"
+          env.DB_IMAGE       = "ghcr.io/${ns}/rmit-store-db"
+          env.IMAGE_TAG      = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
+
+          // build & push
+          sh """
+            echo ">> Building backend:    ${BACKEND_IMAGE}:${IMAGE_TAG}"
+            docker build -t ${BACKEND_IMAGE}:${IMAGE_TAG} -f ci/Dockerfile.backend .
+            docker tag ${BACKEND_IMAGE}:${IMAGE_TAG} ${BACKEND_IMAGE}:latest
+            docker push ${BACKEND_IMAGE}:${IMAGE_TAG}
+            docker push ${BACKEND_IMAGE}:latest
+
+            echo ">> Building frontend:   ${FRONTEND_IMAGE}:${IMAGE_TAG}"
+            docker build -t ${FRONTEND_IMAGE}:${IMAGE_TAG} -f ci/Dockerfile.frontend .
+            docker tag ${FRONTEND_IMAGE}:${IMAGE_TAG} ${FRONTEND_IMAGE}:latest
+            docker push ${FRONTEND_IMAGE}:${IMAGE_TAG}
+            docker push ${FRONTEND_IMAGE}:latest
+
+            echo ">> Building database:   ${DB_IMAGE}:${IMAGE_TAG}"
+            docker build -t ${DB_IMAGE}:${IMAGE_TAG} -f Dockerfile.db .
+            docker tag ${DB_IMAGE}:${IMAGE_TAG} ${DB_IMAGE}:latest
+            docker push ${DB_IMAGE}:${IMAGE_TAG}
+            docker push ${DB_IMAGE}:latest
+
+            docker image prune -f
+          """
+        }
+      }
     }
+
+    stage('Deploy with Ansible (Docker Swarm + NGINX)') {
+      steps {
+        withCredentials([ usernamePassword(credentialsId: 'GHCR_USER', usernameVariable: 'GH_USER', passwordVariable: 'GH_TOKEN') ]) {
+          sh """
+            # ensure ansible present
+            if ! command -v ansible-playbook >/dev/null 2>&1; then
+              if command -v apt-get >/dev/null 2>&1; then
+                sudo apt-get update && sudo apt-get install -y ansible
+              elif command -v yum >/dev/null 2>&1; then
+                sudo yum install -y ansible
+              else
+                echo "Ansible not found and no apt/yum available"; exit 1
+              fi
+            fi
+
+            # (optional) install any galaxy deps if you add them later
+            test -f infra/ansible/requirements.yml && ansible-galaxy collection install -r infra/ansible/requirements.yml || true
+
+            # run playbook limited to lb,staging hosts; pass image tag and GHCR credentials
+            ansible-playbook -i ${INVENTORY} ${PLAYBOOK} \\
+              -l ${params.DEPLOY_LIMIT} \\
+              -e image_tag=${IMAGE_TAG} \\
+              -e ghcr_user=${GH_USER} \\
+              -e ghcr_token=${GH_TOKEN}
+          """
+        }
+      }
+    }
+  }
+
+  post {
+    success {
+      echo "✅ ${env.APP_NAME} ${env.IMAGE_TAG} built & deployed via Swarm."
+    }
+    failure {
+      echo "❌ Pipeline failed."
+    }
+  }
 }
