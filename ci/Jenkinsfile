@@ -78,91 +78,77 @@ pipeline {
     }
 
 stage('Deploy with Ansible (Swarm + NGINX)') {
+  environment {
+    INVENTORY     = 'infra/ansible/inventory.ini'
+    PLAYBOOK      = 'infra/ansible/site.yml'
+    DEPLOY_LIMIT  = 'lb,staging'  // deploy to load balancer + staging hosts
+  }
   steps {
     withCredentials([
       usernamePassword(
-        credentialsId: 'GHCR_USER',          // <-- keep your GHCR creds ID
+        credentialsId: 'GHCR_USER',         // <-- your GHCR username+token credential
         usernameVariable: 'GH_USER',
         passwordVariable: 'GH_TOKEN'
       ),
       sshUserPrivateKey(
-        credentialsId: 'ansible-ec2-key',    // <-- SSH key for the target hosts
+        credentialsId: 'ansible-ec2-key',   // <-- SSH key that logs into your target EC2s
         keyFileVariable: 'ANSIBLE_KEY',
-        usernameVariable: 'ANSIBLE_SSH_USER' // usually ec2-user
+        usernameVariable: 'ANSIBLE_SSH_USER' // usually 'ec2-user'
       )
     ]) {
       dir('ws') {
-        sh '''#!/usr/bin/env bash
-set -euo pipefail
+        sh """
+          set -euo pipefail
 
-INVENTORY="${INVENTORY:-infra/ansible/inventory.ini}"
-PLAYBOOK="${PLAYBOOK:-infra/ansible/site.yml}"
-DEPLOY_LIMIT="${DEPLOY_LIMIT:-lb,staging}"
+          # 1) Ensure Ansible is available
+          if ! command -v ansible-playbook >/dev/null 2>&1; then
+            if command -v yum >/dev/null 2>&1; then
+              sudo yum -y install ansible
+            elif command -v apt-get >/dev/null 2>&1; then
+              sudo apt-get update && sudo apt-get install -y ansible python3-pip
+            else
+              echo "Ansible not found and no apt/yum available"; exit 1
+            fi
+          fi
 
-echo "→ Checking inventory at: ${INVENTORY}"
-test -f "${INVENTORY}" || { echo "Inventory not found at ${INVENTORY}"; ls -la; ls -la infra/ansible || true; exit 2; }
-echo "----- INVENTORY -----"
-sed -n '1,120p' "${INVENTORY}"
-echo "---------------------"
+          # 2) Sanity-check inventory
+          if [ ! -f "${INVENTORY}" ]; then
+            echo "Inventory not found at: ${INVENTORY}"
+            echo "Listing infra/ansible:"
+            ls -la infra/ansible || true
+            exit 2
+          fi
 
-# Ensure Ansible
-if ! command -v ansible-playbook >/dev/null 2>&1; then
-  if command -v yum >/dev/null 2>&1; then
-    sudo yum install -y ansible
-  elif command -v apt-get >/dev/null 2>&1; then
-    sudo apt-get update && sudo apt-get install -y ansible python3-pip
-  else
-    echo "Ansible not found and no apt/yum available"; exit 1
-  fi
-fi
+          echo "----- INVENTORY (first 120 lines) -----"
+          sed -n '1,120p' "${INVENTORY}" || true
+          echo "--------------------------------------"
 
-# Install Galaxy deps if present
-if [[ -f infra/ansible/requirements.yml ]]; then
-  ansible-galaxy collection install -r infra/ansible/requirements.yml -p ./collections
-fi
+          # 3) Galaxy collections (if any)
+          if [ -f infra/ansible/requirements.yml ]; then
+            ansible-galaxy collection install -r infra/ansible/requirements.yml -p ./collections
+          fi
 
-chmod 600 "$ANSIBLE_KEY"
+          chmod 600 "${ANSIBLE_KEY}"
 
-# Optional quick SSH check to the first host in [lb] or [staging]
-TARGET_HOST="$(awk '
-  /^\[lb\]/{g=1;next} /^\[/{g=0}
-  g && NF {print; exit}
-' "${INVENTORY}" | awk "{print \$1}" || true)"
-if [[ -z "${TARGET_HOST}" ]]; then
-  TARGET_HOST="$(awk '
-    /^\[staging\]/{g=1;next} /^\[/{g=0}
-    g && NF {print; exit}
-  ' "${INVENTORY}" | awk "{print \$1}" || true)"
-fi
-if [[ -n "${TARGET_HOST}" ]]; then
-  # If host line is "name ansible_host=IP", extract IP, else use the name
-  HOST_TO_SSH="$(grep -Eo 'ansible_host=([^ ]+)' <<< "${TARGET_HOST}" | cut -d= -f2 || true)"
-  [[ -z "${HOST_TO_SSH}" ]] && HOST_TO_SSH="$(awk '{print $1}' <<< "${TARGET_HOST}")"
-  echo "→ SSH check: ${ANSIBLE_SSH_USER}@${HOST_TO_SSH}"
-  ssh -o StrictHostKeyChecking=no -i "$ANSIBLE_KEY" "${ANSIBLE_SSH_USER}@${HOST_TO_SSH}" 'hostname' || true
-fi
+          export ANSIBLE_STDOUT_CALLBACK=yaml
+          export ANSIBLE_HOST_KEY_CHECKING=False
+          export ANSIBLE_COLLECTIONS_PATHS="./collections:\$HOME/.ansible/collections:/usr/share/ansible/collections"
 
-export ANSIBLE_STDOUT_CALLBACK=yaml
-export ANSIBLE_HOST_KEY_CHECKING=False
-export ANSIBLE_COLLECTIONS_PATHS="./collections:$HOME/.ansible/collections:/usr/share/ansible/collections"
-
-# Run the play with robust -e usage (no multiline extra-vars)
-ansible-playbook -i "${INVENTORY}" "${PLAYBOOK}" \
-  -l "${DEPLOY_LIMIT}" \
-  --private-key "${ANSIBLE_KEY}" \
-  -e ansible_user="${ANSIBLE_SSH_USER}" \
-  -e "backend_image=${BACKEND_IMAGE}" \
-  -e "frontend_image=${FRONTEND_IMAGE}" \
-  -e "image_tag=${IMAGE_TAG}" \
-  -e "env=staging" \
-  -e "ghcr_user=${GH_USER}" \
-  -e "ghcr_token=${GH_TOKEN}" \
-  -e "docker_user=${ANSIBLE_SSH_USER}" \
-  -e "docker_cli_plugins_dir=/usr/libexec/docker/cli-plugins" \
-  -e "docker_compose_version=v2.27.0"
-
-echo "✓ Ansible deploy finished."
-'''
+          # 4) Run the playbook (pass -e vars individually; no multiline -e)
+          ansible-playbook -i "${INVENTORY}" "${PLAYBOOK}" \\
+            -l "${DEPLOY_LIMIT}" \\
+            --private-key "${ANSIBLE_KEY}" \\
+            -e ansible_user="${ANSIBLE_SSH_USER}" \\
+            -e "backend_image=${BACKEND_IMAGE}" \\
+            -e "frontend_image=${FRONTEND_IMAGE}" \\
+            -e "image_tag=${IMAGE_TAG}" \\
+            -e "env=staging" \\
+            -e "ghcr_user=${GH_USER}" \\
+            -e "ghcr_token=${GH_TOKEN}" \\
+            -e "docker_user=${ANSIBLE_SSH_USER}" \\
+            -e "docker_cli_plugins_dir=/usr/libexec/docker/cli-plugins" \\
+            -e "docker_compose_version=v2.27.0"
+        """
       }
     }
   }
