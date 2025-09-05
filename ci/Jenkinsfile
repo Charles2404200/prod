@@ -81,48 +81,31 @@ stage('Deploy with Ansible (Swarm + NGINX)') {
   steps {
     withCredentials([
       usernamePassword(
-        credentialsId: 'GHCR_USER',       // GHCR username/password (or PAT as password)
+        credentialsId: 'GHCR_USER',          // <-- keep your GHCR creds ID
         usernameVariable: 'GH_USER',
         passwordVariable: 'GH_TOKEN'
       ),
       sshUserPrivateKey(
-        credentialsId: 'ansible-ec2-key', // SSH key for your target EC2s
+        credentialsId: 'ansible-ec2-key',    // <-- SSH key for the target hosts
         keyFileVariable: 'ANSIBLE_KEY',
-        usernameVariable: 'ANSIBLE_SSH_USER' // typically "ec2-user"
+        usernameVariable: 'ANSIBLE_SSH_USER' // usually ec2-user
       )
     ]) {
       dir('ws') {
         sh '''#!/usr/bin/env bash
 set -euo pipefail
 
-# Paths in your repo
 INVENTORY="${INVENTORY:-infra/ansible/inventory.ini}"
 PLAYBOOK="${PLAYBOOK:-infra/ansible/site.yml}"
-
-# Limit to LB (nginx) and staging app nodes
 DEPLOY_LIMIT="${DEPLOY_LIMIT:-lb,staging}"
 
-# Vars consumed by your roles/group_vars
-EXTRA_VARS="
-  backend_image=${BACKEND_IMAGE}
-  frontend_image=${FRONTEND_IMAGE}
-  image_tag=${IMAGE_TAG}
-  env=staging
-  ghcr_user=${GH_USER}
-  ghcr_token=${GH_TOKEN}
-  docker_user=${ANSIBLE_SSH_USER}
-  docker_cli_plugins_dir=/usr/libexec/docker/cli-plugins
-  docker_compose_version=v2.27.0
-"
+echo "→ Checking inventory at: ${INVENTORY}"
+test -f "${INVENTORY}" || { echo "Inventory not found at ${INVENTORY}"; ls -la; ls -la infra/ansible || true; exit 2; }
+echo "----- INVENTORY -----"
+sed -n '1,120p' "${INVENTORY}"
+echo "---------------------"
 
-echo "→ Using inventory: $INVENTORY"
-echo "→ Playbook:        $PLAYBOOK"
-echo "→ Limit hosts:     $DEPLOY_LIMIT"
-echo "→ Images:"
-echo "   - ${BACKEND_IMAGE}:${IMAGE_TAG}"
-echo "   - ${FRONTEND_IMAGE}:${IMAGE_TAG}"
-
-# Ensure Ansible present
+# Ensure Ansible
 if ! command -v ansible-playbook >/dev/null 2>&1; then
   if command -v yum >/dev/null 2>&1; then
     sudo yum install -y ansible
@@ -133,32 +116,52 @@ if ! command -v ansible-playbook >/dev/null 2>&1; then
   fi
 fi
 
-# Install Galaxy collections if declared (e.g., community.docker)
+# Install Galaxy deps if present
 if [[ -f infra/ansible/requirements.yml ]]; then
   ansible-galaxy collection install -r infra/ansible/requirements.yml -p ./collections
 fi
 
 chmod 600 "$ANSIBLE_KEY"
 
-# (Optional) quick SSH reachability check against one host from inventory
-# awk pulls first non-empty, non-header host from the [staging] or [lb] groups
-TARGET_HOST="$(awk '/^\\[staging\\]/{flag=1;next}/^\\[/{flag=0}flag && NF{print $1; exit}' "$INVENTORY" || true)"
+# Optional quick SSH check to the first host in [lb] or [staging]
+TARGET_HOST="$(awk '
+  /^\[lb\]/{g=1;next} /^\[/{g=0}
+  g && NF {print; exit}
+' "${INVENTORY}" | awk "{print \$1}" || true)"
+if [[ -z "${TARGET_HOST}" ]]; then
+  TARGET_HOST="$(awk '
+    /^\[staging\]/{g=1;next} /^\[/{g=0}
+    g && NF {print; exit}
+  ' "${INVENTORY}" | awk "{print \$1}" || true)"
+fi
 if [[ -n "${TARGET_HOST}" ]]; then
-  echo "→ SSH check to ${TARGET_HOST} ..."
-  ssh -o StrictHostKeyChecking=no -i "$ANSIBLE_KEY" "${ANSIBLE_SSH_USER}@${TARGET_HOST##*=}" 'hostname' || true
+  # If host line is "name ansible_host=IP", extract IP, else use the name
+  HOST_TO_SSH="$(grep -Eo 'ansible_host=([^ ]+)' <<< "${TARGET_HOST}" | cut -d= -f2 || true)"
+  [[ -z "${HOST_TO_SSH}" ]] && HOST_TO_SSH="$(awk '{print $1}' <<< "${TARGET_HOST}")"
+  echo "→ SSH check: ${ANSIBLE_SSH_USER}@${HOST_TO_SSH}"
+  ssh -o StrictHostKeyChecking=no -i "$ANSIBLE_KEY" "${ANSIBLE_SSH_USER}@${HOST_TO_SSH}" 'hostname' || true
 fi
 
-# Run the playbook
-ANSIBLE_HOST_KEY_CHECKING=False \
-ANSIBLE_COLLECTIONS_PATHS="./collections:$HOME/.ansible/collections:/usr/share/ansible/collections" \
-ansible-playbook -i "$INVENTORY" "$PLAYBOOK" \
-  -l "$DEPLOY_LIMIT" \
-  --private-key "$ANSIBLE_KEY" \
-  -e "$EXTRA_VARS" \
-  -e "ansible_user=${ANSIBLE_SSH_USER}" \
-  -e "ansible_ssh_common_args='-o StrictHostKeyChecking=no'"
+export ANSIBLE_STDOUT_CALLBACK=yaml
+export ANSIBLE_HOST_KEY_CHECKING=False
+export ANSIBLE_COLLECTIONS_PATHS="./collections:$HOME/.ansible/collections:/usr/share/ansible/collections"
 
-echo "✓ Ansible deploy step completed."
+# Run the play with robust -e usage (no multiline extra-vars)
+ansible-playbook -i "${INVENTORY}" "${PLAYBOOK}" \
+  -l "${DEPLOY_LIMIT}" \
+  --private-key "${ANSIBLE_KEY}" \
+  -e ansible_user="${ANSIBLE_SSH_USER}" \
+  -e "backend_image=${BACKEND_IMAGE}" \
+  -e "frontend_image=${FRONTEND_IMAGE}" \
+  -e "image_tag=${IMAGE_TAG}" \
+  -e "env=staging" \
+  -e "ghcr_user=${GH_USER}" \
+  -e "ghcr_token=${GH_TOKEN}" \
+  -e "docker_user=${ANSIBLE_SSH_USER}" \
+  -e "docker_cli_plugins_dir=/usr/libexec/docker/cli-plugins" \
+  -e "docker_compose_version=v2.27.0"
+
+echo "✓ Ansible deploy finished."
 '''
       }
     }
