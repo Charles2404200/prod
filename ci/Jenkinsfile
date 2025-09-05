@@ -50,7 +50,6 @@ pipeline {
             // compute image names as local vars (don’t rely on env overwrites)
             def BACKEND  = "ghcr.io/${ns}/rmit-store-backend"
             def FRONTEND = "ghcr.io/${ns}/rmit-store-frontend"
-            def DBIMG    = "ghcr.io/${ns}/rmit-store-db"
             def TAG      = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
 
             sh """
@@ -58,7 +57,6 @@ pipeline {
               echo "TAG=${TAG}"
               echo "BE=${BACKEND}"
               echo "FE=${FRONTEND}"
-              echo "DB=${DBIMG}"
 
               # Backend
               docker build --pull --no-cache -t ${BACKEND}:${TAG}  -f ci/Dockerfile.backend .
@@ -78,7 +76,6 @@ pipeline {
             env.IMAGE_TAG      = TAG
             env.BACKEND_IMAGE  = BACKEND
             env.FRONTEND_IMAGE = FRONTEND
-            env.DB_IMAGE       = DBIMG
           }
         }
       }
