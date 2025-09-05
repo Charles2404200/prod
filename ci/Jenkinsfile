@@ -77,39 +77,57 @@ pipeline {
       }
     }
 
-    stage('Deploy with Ansible (Swarm + NGINX)') {
-      steps {
-        withCredentials([ usernamePassword(credentialsId: 'GHCR_USER',
-                                           usernameVariable: 'GH_USER',
-                                           passwordVariable: 'GH_TOKEN') ]) {
-          dir('ws') {
-            sh '''
-              set -e
-              if ! command -v ansible-playbook >/dev/null 2>&1; then
-                if command -v apt-get >/dev/null 2>&1; then
-                  sudo apt-get update && sudo apt-get install -y ansible
-                elif command -v yum >/dev/null 2>&1; then
-                  sudo yum install -y ansible
-                else
-                  echo "Ansible not found and no apt/yum available"; exit 1
-                fi
-              fi
+stage('Deploy with Ansible (Swarm + NGINX)') {
+  steps {
+    withCredentials([
+      usernamePassword(credentialsId: 'GHCR_USER',
+                       usernameVariable: 'GH_USER',
+                       passwordVariable: 'GH_TOKEN'),
+      file(credentialsId: 'edge-key-pem', variable: 'EDGE_PEM_FILE') // <-- your kube.pem
+    ]) {
+      dir('ws') {
+        sh '''
+          set -euo pipefail
 
-              test -f infra/ansible/requirements.yml && ansible-galaxy collection install -r infra/ansible/requirements.yml || true
+          # Set paths/targets (adjust if your files differ)
+          INVENTORY="infra/ansible/inventory.ini"
+          PLAYBOOK="infra/ansible/site.yml"
+          DEPLOY_LIMIT="lb,staging"   # or "lb,prod" for prod
 
-              ANSIBLE_HOST_KEY_CHECKING=False \
-              ansible-playbook -i ${INVENTORY} ${PLAYBOOK} \
-                -l ${DEPLOY_LIMIT} \
-                -e backend_image=${BACKEND_IMAGE} \
-                -e frontend_image=${FRONTEND_IMAGE} \
-                -e image_tag=${IMAGE_TAG} \
-                -e ghcr_user=${GH_USER} \
-                -e ghcr_token=${GH_TOKEN}
-            '''
-          }
-        }
+          # Ensure Ansible present on the Jenkins node
+          if ! command -v ansible-playbook >/dev/null 2>&1; then
+            if command -v yum >/dev/null 2>&1; then
+              sudo yum install -y ansible
+            elif command -v apt-get >/dev/null 2>&1; then
+              sudo apt-get update && sudo apt-get install -y ansible
+            else
+              echo "Ansible not found and no apt/yum available"; exit 1
+            fi
+          fi
+
+          # Install collections if defined
+          test -f infra/ansible/requirements.yml && \
+            ansible-galaxy collection install -r infra/ansible/requirements.yml || true
+
+          # SSH key for targets
+          chmod 600 "$EDGE_PEM_FILE"
+
+          # Run the play
+          ANSIBLE_HOST_KEY_CHECKING=False \
+          ansible-playbook -i "$INVENTORY" "$PLAYBOOK" \
+            -l "$DEPLOY_LIMIT" \
+            --private-key "$EDGE_PEM_FILE" \
+            -e "backend_image=${BACKEND_IMAGE}" \
+            -e "frontend_image=${FRONTEND_IMAGE}" \
+            -e "image_tag=${IMAGE_TAG}" \
+            -e "env=staging" \
+            -e "ghcr_user=${GH_USER}" \
+            -e "ghcr_token=${GH_TOKEN}"
+        '''
       }
     }
+  }
+}
   }
 
   post {
