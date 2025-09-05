@@ -45,7 +45,7 @@
 - name: Wait for backend health
   uri:
     url: >-
-      http://http://54.196.128.5/:{% if env == 'staging' -%}
+      http://http://3.91.13.98/:{% if env == 'staging' -%}
       {{ backend_staging_port }}
       {%- elif color == 'blue' -%}
       {{ backend_blue_port }}
