@@ -1,32 +1,33 @@
 pipeline {
   agent any
-  options { skipDefaultCheckout(true) } // avoid implicit checkout that can hit perms issues
+  options { skipDefaultCheckout(true) } // avoid implicit checkout at workspace root
 
   parameters {
     string(name: 'GHCR_NAMESPACE',  defaultValue: 'BennyBach1002', description: 'GHCR namespace (GitHub user/org, NOT an email)')
-    string(name: 'BRANCH_TO_BUILD', defaultValue: 'ansible-prod',          description: 'Git branch to build')
-    string(name: 'DEPLOY_LIMIT',    defaultValue: 'lb,staging',    description: 'Ansible --limit hosts (e.g. "lb,staging" or "prod_lb,prod")')
+    string(name: 'BRANCH_TO_BUILD', defaultValue: 'main',          description: 'Git branch to build')
+    string(name: 'DEPLOY_LIMIT',    defaultValue: 'lb,staging',    description: 'Ansible --limit (e.g. "lb,staging" or "prod_lb,prod")')
   }
 
   environment {
     APP_NAME   = 'rmit-store'
     INVENTORY  = 'infra/ansible/inventory.ini'
     PLAYBOOK   = 'infra/ansible/site.yml'
-
-    // placeholders; overwritten after we sanitize namespace
     BACKEND_IMAGE  = "ghcr.io/${params.GHCR_NAMESPACE}/rmit-store-backend"
     FRONTEND_IMAGE = "ghcr.io/${params.GHCR_NAMESPACE}/rmit-store-frontend"
     DB_IMAGE       = "ghcr.io/${params.GHCR_NAMESPACE}/rmit-store-db"
   }
 
   stages {
-    stage('Checkout (clean)') {
+    stage('Checkout into ws/') {
       steps {
-        deleteDir()
+        // create a clean subdir without touching root workspace
+        sh 'rm -rf ws && mkdir -p ws'
         checkout([$class: 'GitSCM',
           branches: [[name: "*/${params.BRANCH_TO_BUILD}"]],
-          userRemoteConfigs: [[url: 'https://github.com/Charles2404200/prod']]
+          userRemoteConfigs: [[url: 'https://github.com/Charles2404200/prod']],
+          extensions: [[ $class: 'RelativeTargetDirectory', relativeTargetDir: 'ws' ]]
         ])
+        sh 'ls -la ws | head -n 30'
       }
     }
 
@@ -40,78 +41,75 @@ pipeline {
 
     stage('Build & Push Images (BE/FE/DB)') {
       steps {
-        script {
-          // sanitize namespace -> lowercase and only a-z0-9-
-          def ns = params.GHCR_NAMESPACE.toLowerCase().replaceAll(/[^a-z0-9-]/, '')
-          if (ns != params.GHCR_NAMESPACE) {
-            echo "NOTE: sanitized GHCR namespace '${params.GHCR_NAMESPACE}' -> '${ns}'"
+        dir('ws') {
+          script {
+            def ns = params.GHCR_NAMESPACE.toLowerCase().replaceAll(/[^a-z0-9-]/, '')
+            if (ns != params.GHCR_NAMESPACE) echo "NOTE: sanitized GHCR namespace '${params.GHCR_NAMESPACE}' -> '${ns}'"
+            env.BACKEND_IMAGE  = "ghcr.io/${ns}/rmit-store-backend"
+            env.FRONTEND_IMAGE = "ghcr.io/${ns}/rmit-store-frontend"
+            env.DB_IMAGE       = "ghcr.io/${ns}/rmit-store-db"
+            env.IMAGE_TAG      = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
+
+            sh """
+              set -e
+
+              echo ">> Backend:  ${BACKEND_IMAGE}:${IMAGE_TAG}"
+              docker build -t ${BACKEND_IMAGE}:${IMAGE_TAG}  -f ci/Dockerfile.backend .
+              docker tag   ${BACKEND_IMAGE}:${IMAGE_TAG}     ${BACKEND_IMAGE}:latest
+              docker push  ${BACKEND_IMAGE}:${IMAGE_TAG}
+              docker push  ${BACKEND_IMAGE}:latest
+
+              echo ">> Frontend: ${FRONTEND_IMAGE}:${IMAGE_TAG}"
+              docker build -t ${FRONTEND_IMAGE}:${IMAGE_TAG} -f ci/Dockerfile.frontend .
+              docker tag   ${FRONTEND_IMAGE}:${IMAGE_TAG}    ${FRONTEND_IMAGE}:latest
+              docker push  ${FRONTEND_IMAGE}:${IMAGE_TAG}
+              docker push  ${FRONTEND_IMAGE}:latest
+
+              echo ">> DB:       ${DB_IMAGE}:${IMAGE_TAG}"
+              docker build -t ${DB_IMAGE}:${IMAGE_TAG} -f Dockerfile.db .
+              docker tag   ${DB_IMAGE}:${IMAGE_TAG}    ${DB_IMAGE}:latest
+              docker push  ${DB_IMAGE}:${IMAGE_TAG}
+              docker push  ${DB_IMAGE}:latest
+
+              docker image prune -f || true
+            """
           }
-          env.BACKEND_IMAGE  = "ghcr.io/${ns}/rmit-store-backend"
-          env.FRONTEND_IMAGE = "ghcr.io/${ns}/rmit-store-frontend"
-          env.DB_IMAGE       = "ghcr.io/${ns}/rmit-store-db"
-          env.IMAGE_TAG      = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
-
-          sh """
-            set -e
-
-            echo ">> Backend:  ${BACKEND_IMAGE}:${IMAGE_TAG}"
-            docker build -t ${BACKEND_IMAGE}:${IMAGE_TAG}  -f ci/Dockerfile.backend .
-            docker tag   ${BACKEND_IMAGE}:${IMAGE_TAG}     ${BACKEND_IMAGE}:latest
-            docker push  ${BACKEND_IMAGE}:${IMAGE_TAG}
-            docker push  ${BACKEND_IMAGE}:latest
-
-            echo ">> Frontend: ${FRONTEND_IMAGE}:${IMAGE_TAG}"
-            docker build -t ${FRONTEND_IMAGE}:${IMAGE_TAG} -f ci/Dockerfile.frontend .
-            docker tag   ${FRONTEND_IMAGE}:${IMAGE_TAG}    ${FRONTEND_IMAGE}:latest
-            docker push  ${FRONTEND_IMAGE}:${IMAGE_TAG}
-            docker push  ${FRONTEND_IMAGE}:latest
-
-            echo ">> DB:       ${DB_IMAGE}:${IMAGE_TAG}"
-            docker build -t ${DB_IMAGE}:${IMAGE_TAG} -f Dockerfile.db .
-            docker tag   ${DB_IMAGE}:${IMAGE_TAG}    ${DB_IMAGE}:latest
-            docker push  ${DB_IMAGE}:${IMAGE_TAG}
-            docker push  ${DB_IMAGE}:latest
-
-            docker image prune -f || true
-          """
         }
       }
     }
 
-    stage('Deploy with Ansible (Docker Swarm + NGINX)') {
+    stage('Deploy with Ansible (Swarm + NGINX)') {
       steps {
         withCredentials([ usernamePassword(credentialsId: 'GHCR_USER', usernameVariable: 'GH_USER', passwordVariable: 'GH_TOKEN') ]) {
-          sh """
-            set -e
-
-            # Ensure Ansible is available on the controller
-            if ! command -v ansible-playbook >/dev/null 2>&1; then
-              if command -v apt-get >/dev/null 2>&1; then
-                sudo apt-get update && sudo apt-get install -y ansible
-              elif command -v yum >/dev/null 2>&1; then
-                sudo yum install -y ansible
-              else
-                echo "Ansible not found and no apt/yum available"; exit 1
+          dir('ws') {
+            sh """
+              set -e
+              if ! command -v ansible-playbook >/dev/null 2>&1; then
+                if command -v apt-get >/dev/null 2>&1; then
+                  sudo apt-get update && sudo apt-get install -y ansible
+                elif command -v yum >/dev/null 2>&1; then
+                  sudo yum install -y ansible
+                else
+                  echo "Ansible not found and no apt/yum available"; exit 1
+                fi
               fi
-            fi
 
-            # Optional: install Galaxy deps if you add them later
-            test -f infra/ansible/requirements.yml && ansible-galaxy collection install -r infra/ansible/requirements.yml || true
+              test -f infra/ansible/requirements.yml && ansible-galaxy collection install -r infra/ansible/requirements.yml || true
 
-            # Run your playbook on the selected hosts; pass the tag and GHCR creds
-            ansible-playbook -i ${INVENTORY} ${PLAYBOOK} \\
-              -l ${params.DEPLOY_LIMIT} \\
-              -e image_tag=${IMAGE_TAG} \\
-              -e ghcr_user=${GH_USER} \\
-              -e ghcr_token=${GH_TOKEN}
-          """
+              ansible-playbook -i ${INVENTORY} ${PLAYBOOK} \\
+                -l ${params.DEPLOY_LIMIT} \\
+                -e image_tag=${IMAGE_TAG} \\
+                -e ghcr_user=${GH_USER} \\
+                -e ghcr_token=${GH_TOKEN}
+            """
+          }
         }
       }
     }
   }
 
   post {
-    success { echo "✅ ${env.APP_NAME} ${env.IMAGE_TAG} built & deployed to ${params.DEPLOY_LIMIT} via Docker Swarm + NGINX." }
-    failure { echo "❌ Pipeline failed. Check console for details." }
+    success { echo "✅ ${env.APP_NAME} ${env.IMAGE_TAG} built & deployed via Docker Swarm + NGINX." }
+    failure { echo "❌ Pipeline failed. See console log." }
   }
 }
