@@ -3,23 +3,25 @@ pipeline {
   options { timestamps() }
 
   parameters {
-    string(name: 'GHCR_NAMESPACE', defaultValue: 'BennyBach1002', description: 'GHCR namespace (GitHub user/org, lowercase, no @)')
-    string(name: 'BRANCH_TO_BUILD', defaultValue: 'main', description: 'Git branch to build')
-    string(name: 'DEPLOY_LIMIT', defaultValue: 'lb,staging', description: 'Ansible --limit hosts (comma-separated)')
+    string(name: 'GHCR_NAMESPACE',   defaultValue: 'BennyBach1002',  description: 'GHCR namespace (GitHub user/org, lowercase, no @)')
+    string(name: 'BRANCH_TO_BUILD',  defaultValue: 'main',           description: 'Git branch to build')
+    string(name: 'STAGING_LIMIT',    defaultValue: 'lb,staging',     description: 'Ansible --limit for staging')
+    string(name: 'PROD_LIMIT',       defaultValue: 'prod_lb,prod',   description: 'Ansible --limit for production')
+    string(name: 'MAIL_TO',          defaultValue: 'devops@example.com', description: 'Notify email (optional)')
+    string(name: 'SLACK_CHANNEL',    defaultValue: '',               description: 'Slack channel (optional, requires Slack plugin)')
   }
 
   environment {
-    APP_NAME = 'rmit-store'
-    // defaults (will be overwritten after we sanitize namespace)
+    APP_NAME   = 'rmit-store'
+    INVENTORY  = 'infra/ansible/inventory.ini'
+    PLAYBOOK   = 'infra/ansible/site.yml'
+    // placeholders; will be rebuilt after we sanitize namespace
     BACKEND_IMAGE  = "ghcr.io/${params.GHCR_NAMESPACE}/rmit-store-backend"
     FRONTEND_IMAGE = "ghcr.io/${params.GHCR_NAMESPACE}/rmit-store-frontend"
     DB_IMAGE       = "ghcr.io/${params.GHCR_NAMESPACE}/rmit-store-db"
-    INVENTORY      = 'infra/ansible/inventory.ini'
-    PLAYBOOK       = 'infra/ansible/site.yml'
   }
 
   stages {
-
     stage('Checkout') {
       steps {
         checkout scm
@@ -27,7 +29,7 @@ pipeline {
       }
     }
 
-    stage('Login to GHCR') {
+    stage('GHCR Login (controller)') {
       steps {
         withCredentials([ usernamePassword(credentialsId: 'GHCR_USER', usernameVariable: 'GH_USER', passwordVariable: 'GH_TOKEN') ]) {
           sh 'echo "$GH_TOKEN" | docker login ghcr.io -u "$GH_USER" --password-stdin'
@@ -38,32 +40,31 @@ pipeline {
     stage('Build & Push Images (BE/FE/DB)') {
       steps {
         script {
-          // sanitize namespace (no @, lowercase, only a-z0-9-)
+          // sanitize namespace -> lowercase, a-z0-9-
           def ns = params.GHCR_NAMESPACE.toLowerCase().replaceAll(/[^a-z0-9-]/, '')
           env.BACKEND_IMAGE  = "ghcr.io/${ns}/rmit-store-backend"
           env.FRONTEND_IMAGE = "ghcr.io/${ns}/rmit-store-frontend"
           env.DB_IMAGE       = "ghcr.io/${ns}/rmit-store-db"
           env.IMAGE_TAG      = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
 
-          // build & push
           sh """
-            echo ">> Building backend:    ${BACKEND_IMAGE}:${IMAGE_TAG}"
-            docker build -t ${BACKEND_IMAGE}:${IMAGE_TAG} -f ci/Dockerfile.backend .
-            docker tag ${BACKEND_IMAGE}:${IMAGE_TAG} ${BACKEND_IMAGE}:latest
-            docker push ${BACKEND_IMAGE}:${IMAGE_TAG}
-            docker push ${BACKEND_IMAGE}:latest
+            echo ">> Backend:  ${BACKEND_IMAGE}:${IMAGE_TAG}"
+            docker build -t ${BACKEND_IMAGE}:${IMAGE_TAG}  -f ci/Dockerfile.backend .
+            docker tag   ${BACKEND_IMAGE}:${IMAGE_TAG}     ${BACKEND_IMAGE}:latest
+            docker push  ${BACKEND_IMAGE}:${IMAGE_TAG}
+            docker push  ${BACKEND_IMAGE}:latest
 
-            echo ">> Building frontend:   ${FRONTEND_IMAGE}:${IMAGE_TAG}"
+            echo ">> Frontend: ${FRONTEND_IMAGE}:${IMAGE_TAG}"
             docker build -t ${FRONTEND_IMAGE}:${IMAGE_TAG} -f ci/Dockerfile.frontend .
-            docker tag ${FRONTEND_IMAGE}:${IMAGE_TAG} ${FRONTEND_IMAGE}:latest
-            docker push ${FRONTEND_IMAGE}:${IMAGE_TAG}
-            docker push ${FRONTEND_IMAGE}:latest
+            docker tag   ${FRONTEND_IMAGE}:${IMAGE_TAG}    ${FRONTEND_IMAGE}:latest
+            docker push  ${FRONTEND_IMAGE}:${IMAGE_TAG}
+            docker push  ${FRONTEND_IMAGE}:latest
 
-            echo ">> Building database:   ${DB_IMAGE}:${IMAGE_TAG}"
+            echo ">> DB:       ${DB_IMAGE}:${IMAGE_TAG}"
             docker build -t ${DB_IMAGE}:${IMAGE_TAG} -f Dockerfile.db .
-            docker tag ${DB_IMAGE}:${IMAGE_TAG} ${DB_IMAGE}:latest
-            docker push ${DB_IMAGE}:${IMAGE_TAG}
-            docker push ${DB_IMAGE}:latest
+            docker tag   ${DB_IMAGE}:${IMAGE_TAG}    ${DB_IMAGE}:latest
+            docker push  ${DB_IMAGE}:${IMAGE_TAG}
+            docker push  ${DB_IMAGE}:latest
 
             docker image prune -f
           """
@@ -71,7 +72,7 @@ pipeline {
       }
     }
 
-    stage('Deploy with Ansible (Docker Swarm + NGINX)') {
+    stage('Deploy STAGING (Ansible → Swarm + NGINX)') {
       steps {
         withCredentials([ usernamePassword(credentialsId: 'GHCR_USER', usernameVariable: 'GH_USER', passwordVariable: 'GH_TOKEN') ]) {
           sh """
@@ -86,12 +87,31 @@ pipeline {
               fi
             fi
 
-            # (optional) install any galaxy deps if you add them later
-            test -f infra/ansible/requirements.yml && ansible-galaxy collection install -r infra/ansible/requirements.yml || true
-
-            # run playbook limited to lb,staging hosts; pass image tag and GHCR credentials
+            # run playbook on staging groups
             ansible-playbook -i ${INVENTORY} ${PLAYBOOK} \\
-              -l ${params.DEPLOY_LIMIT} \\
+              -l ${params.STAGING_LIMIT} \\
+              -e image_tag=${IMAGE_TAG} \\
+              -e ghcr_user=${GH_USER} \\
+              -e ghcr_token=${GH_TOKEN}
+          """
+        }
+      }
+    }
+
+    stage('Approve Promotion to PROD') {
+      steps {
+        script {
+          input(message: "Promote ${env.IMAGE_TAG} to PROD?", ok: "Deploy")
+        }
+      }
+    }
+
+    stage('Deploy PROD (Ansible → Swarm + NGINX)') {
+      steps {
+        withCredentials([ usernamePassword(credentialsId: 'GHCR_USER', usernameVariable: 'GH_USER', passwordVariable: 'GH_TOKEN') ]) {
+          sh """
+            ansible-playbook -i ${INVENTORY} ${PLAYBOOK} \\
+              -l ${params.PROD_LIMIT} \\
               -e image_tag=${IMAGE_TAG} \\
               -e ghcr_user=${GH_USER} \\
               -e ghcr_token=${GH_TOKEN}
@@ -103,10 +123,28 @@ pipeline {
 
   post {
     success {
-      echo "✅ ${env.APP_NAME} ${env.IMAGE_TAG} built & deployed via Swarm."
+      script {
+        if (params.MAIL_TO) {
+          mail to: params.MAIL_TO,
+               subject: "[SUCCESS] ${env.APP_NAME} ${env.IMAGE_TAG} → staging/prod",
+               body: "Build and Swarm deploy succeeded. Tag: ${env.IMAGE_TAG}\n${env.BUILD_URL}"
+        }
+        if (params.SLACK_CHANNEL) {
+          slackSend(channel: params.SLACK_CHANNEL, message: "✅ ${env.APP_NAME} ${env.IMAGE_TAG} deployed to staging/prod\n${env.BUILD_URL}")
+        }
+      }
     }
     failure {
-      echo "❌ Pipeline failed."
+      script {
+        if (params.MAIL_TO) {
+          mail to: params.MAIL_TO,
+               subject: "[FAIL] ${env.APP_NAME} ${env.BUILD_TAG}",
+               body: "Pipeline failed. Check logs: ${env.BUILD_URL}"
+        }
+        if (params.SLACK_CHANNEL) {
+          slackSend(channel: params.SLACK_CHANNEL, message: "❌ ${env.APP_NAME} ${env.BUILD_TAG} failed\n${env.BUILD_URL}")
+        }
+      }
     }
   }
 }
