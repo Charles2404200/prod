@@ -79,136 +79,86 @@ pipeline {
 
 stage('Deploy with Ansible (Swarm + NGINX)') {
   environment {
-    CTRL_HOST    = '54.87.144.232'
-    CTRL_USER    = 'ec2-user'
-    REMOTE_WORK  = '/home/ec2-user/deploy'
+    // Where Ansible will run (your controller EC2)
+    CTRL_HOST     = '54.87.144.232'
+    CTRL_USER     = 'ec2-user'
+
+    // User Ansible uses to log into the target hosts in inventory.ini
+    EDGE_USER     = 'ec2-user'
+
+    // Paths on the controller (can keep defaults)
+    REMOTE_WORK   = '/home/ec2-user/deploy'
+    REMOTE_KEY    = '/home/ec2-user/edge.pem'      // edge key placed on controller
+    INVENTORY     = 'infra/ansible/inventory.ini'
+    PLAYBOOK      = 'infra/ansible/site.yml'
+    DEPLOY_LIMIT  = 'lb,staging'
   }
   steps {
     withCredentials([
-      usernamePassword(credentialsId: 'GHCR_USER', usernameVariable: 'GH_USER', passwordVariable: 'GH_TOKEN'),
-      sshUserPrivateKey(credentialsId: 'ansible-ec2-key', keyFileVariable: 'CTRL_KEY')
+      usernamePassword(credentialsId: 'GHCR_USER',    usernameVariable: 'GH_USER',  passwordVariable: 'GH_TOKEN'),
+      sshUserPrivateKey(credentialsId: 'ansible-ec2-key', keyFileVariable: 'CTRL_KEY'),   // Jenkins -> controller
+      sshUserPrivateKey(credentialsId: 'jenkins-ec2-key',    keyFileVariable: 'EDGE_KEY')    // controller -> targets
     ]) {
-      withEnv([
-        "FRONTEND_IMAGE=${env.FRONTEND_IMAGE}",
-        "BACKEND_IMAGE=${env.BACKEND_IMAGE}",
-        "IMAGE_TAG=${env.IMAGE_TAG}"
-      ]) {
-        dir('ws') {
-          sh '''#!/usr/bin/env bash
+      dir('ws') {
+        sh '''#!/usr/bin/env bash
+          set -euo pipefail
+
+          echo "[deploy] Packaging Ansible folder…"
+          test -d infra/ansible || { echo "infra/ansible not found in workspace"; exit 2; }
+          tar czf ansible.tgz infra/ansible
+
+          echo "[deploy] Pushing bundle + edge key to controller ${CTRL_USER}@${CTRL_HOST} …"
+          chmod 600 "${CTRL_KEY}" "${EDGE_KEY}"
+          ssh -o StrictHostKeyChecking=no -i "${CTRL_KEY}" "${CTRL_USER}@${CTRL_HOST}" "mkdir -p '${REMOTE_WORK}'"
+          scp -o StrictHostKeyChecking=no -i "${CTRL_KEY}" ansible.tgz "${CTRL_USER}@${CTRL_HOST}:${REMOTE_WORK}/ansible.tgz"
+          scp -o StrictHostKeyChecking=no -i "${CTRL_KEY}" "${EDGE_KEY}" "${CTRL_USER}@${CTRL_HOST}:${REMOTE_KEY}"
+
+          echo "[deploy] Running Ansible on controller (via SSH)…"
+          ssh -tt -o StrictHostKeyChecking=no -i "${CTRL_KEY}" "${CTRL_USER}@${CTRL_HOST}" bash -lc "'
             set -euo pipefail
 
-            echo "[Deploy] Package Ansible tree"
-            test -d infra/ansible || { echo "infra/ansible not found"; exit 2; }
-            tar czf ansible.tgz infra/ansible
-
-            echo "[Deploy] Copy to controller ${CTRL_HOST}"
-            chmod 600 "${CTRL_KEY}"
-            ssh -o StrictHostKeyChecking=no -i "${CTRL_KEY}" "${CTRL_USER}@${CTRL_HOST}" "mkdir -p '${REMOTE_WORK}'"
-            scp -o StrictHostKeyChecking=no -i "${CTRL_KEY}" ansible.tgz "${CTRL_USER}@${CTRL_HOST}:${REMOTE_WORK}/ansible.tgz"
-
-            echo "[Deploy] Run Ansible ON controller"
-            ssh -tt -o StrictHostKeyChecking=no -i "${CTRL_KEY}" "${CTRL_USER}@${CTRL_HOST}" bash -lc '
-              set -euo pipefail
-
-              INVENTORY="infra/ansible/inventory.ini"
-              PLAYBOOK="infra/ansible/site.yml"
-              DEPLOY_LIMIT="lb,staging"
-
-              FRONTEND_IMAGE="'"${FRONTEND_IMAGE}"'"
-              BACKEND_IMAGE="'"${BACKEND_IMAGE}"'"
-              IMAGE_TAG="'"${IMAGE_TAG}"'"
-              GH_USER="'"${GH_USER}"'"
-              GH_TOKEN="'"${GH_TOKEN}"'"
-
-              # Ensure Ansible
-              if ! command -v ansible-playbook >/dev/null 2>&1; then
-                if command -v yum >/dev/null 2>&1; then
-                  sudo yum -y install ansible python3 || true
-                elif command -v apt-get >/dev/null 2>&1; then
-                  sudo apt-get update && sudo apt-get install -y ansible python3
-                fi
+            # Prep controller
+            sudo bash -lc \"
+              if command -v yum >/dev/null 2>&1; then
+                sudo yum -y install ansible python3 || true
+              elif command -v apt-get >/dev/null 2>&1; then
+                sudo apt-get update && sudo apt-get install -y ansible python3
               fi
+            \"
 
-              cd "'"${REMOTE_WORK}"'"
-              rm -rf infra || true
-              tar xzf ansible.tgz
+            chmod 600 ${REMOTE_KEY}
 
-              # Force inventory to localhost
-              cat > "${INVENTORY}" <<EOF
-[lb]
-edge-1 ansible_host=127.0.0.1 ansible_connection=local
+            # Unpack bundle
+            rm -rf ${REMOTE_WORK}/infra || true
+            tar xzf ${REMOTE_WORK}/ansible.tgz -C ${REMOTE_WORK}
 
-[staging]
-edge-1 ansible_host=127.0.0.1 ansible_connection=local
+            cd ${REMOTE_WORK}
 
-[all:vars]
-ansible_user=ec2-user
-ansible_python_interpreter=/usr/bin/python3
-EOF
+            # Optional collections
+            if [ -f infra/ansible/requirements.yml ]; then
+              ansible-galaxy collection install -r infra/ansible/requirements.yml -p ./collections
+              export ANSIBLE_COLLECTIONS_PATHS=\"./collections:$HOME/.ansible/collections:/usr/share/ansible/collections\"
+            fi
 
-              # Make nginx serve http://54.87.144.232/
-              mkdir -p infra/ansible/group_vars
-              cat > infra/ansible/group_vars/all.yml <<YML
-frontend_image: "${FRONTEND_IMAGE}"
-backend_image:  "${BACKEND_IMAGE}"
-image_tag:      "${IMAGE_TAG}"
+            export ANSIBLE_STDOUT_CALLBACK=yaml
+            export ANSIBLE_HOST_KEY_CHECKING=False
 
-frontend_http_port: 80
-backend_staging_port: 3000
-staging_domain: "54.87.144.232"
-YML
-
-              # Init Docker Swarm if not active (safe with set -u)
-              if command -v docker >/dev/null 2>&1; then
-                if ! docker info --format "{{.Swarm.LocalNodeState}}" 2>/dev/null | grep -qi active; then
-                  ADVERTISE=""
-                  # Try public IP first, then first local IP, then loopback
-                  ADVERTISE="$(curl -s --max-time 3 ifconfig.me || true)"
-                  if [ -z "${ADVERTISE}" ]; then
-                    ADVERTISE="$(hostname -I 2>/dev/null | awk '"'"'{print $1}'"'"' || true)"
-                  fi
-                  [ -z "${ADVERTISE}" ] && ADVERTISE="127.0.0.1"
-                  sudo docker swarm init --advertise-addr "${ADVERTISE}" || true
-                fi
-              fi
-
-              # Collections (optional)
-              if [ -f infra/ansible/requirements.yml ]; then
-                ansible-galaxy collection install -p ./collections -r infra/ansible/requirements.yml
-                export ANSIBLE_COLLECTIONS_PATHS="./collections:$HOME/.ansible/collections:/usr/share/ansible/collections"
-              fi
-
-              export ANSIBLE_STDOUT_CALLBACK=yaml
-              export ANSIBLE_HOST_KEY_CHECKING=False
-
-              # Run playbook
-              ansible-playbook -i "${INVENTORY}" "${PLAYBOOK}" \
-                -l "${DEPLOY_LIMIT}" \
-                -e env=staging \
-                -e "backend_image=${BACKEND_IMAGE}" \
-                -e "frontend_image=${FRONTEND_IMAGE}" \
-                -e "image_tag=${IMAGE_TAG}" \
-                -e "ghcr_user=${GH_USER}" \
-                -e "ghcr_token=${GH_TOKEN}" \
-                -e "docker_user=ec2-user" \
-                -e "docker_cli_plugins_dir=/usr/libexec/docker/cli-plugins" \
-                -e "docker_compose_version=v2.27.0"
-            '
-
-            echo "[Verify] http://54.87.144.232/ …"
-            for i in {1..30}; do
-              code=$(curl -sS -o /dev/null -w "%{http_code}" http://54.87.144.232/ || true)
-              if [[ "$code" =~ ^2|3 ]]; then
-                echo "OK: HTTP $code"
-                exit 0
-              fi
-              echo "Waiting (attempt $i): got $code"
-              sleep 2
-            done
-            echo "ERROR: site not healthy at http://54.87.144.232/"
-            exit 1
-          '''
-        }
+            # Run playbook against lb,staging with supplied images/tags and GHCR creds
+            ansible-playbook -i ${INVENTORY} ${PLAYBOOK} \\
+              -l ${DEPLOY_LIMIT} \\
+              --private-key ${REMOTE_KEY} \\
+              -e ansible_user=${EDGE_USER} \\
+              -e backend_image=${BACKEND_IMAGE} \\
+              -e frontend_image=${FRONTEND_IMAGE} \\
+              -e image_tag=${IMAGE_TAG} \\
+              -e env=staging \\
+              -e ghcr_user=${GH_USER} \\
+              -e ghcr_token=${GH_TOKEN} \\
+              -e docker_user=${EDGE_USER} \\
+              -e docker_cli_plugins_dir=/usr/libexec/docker/cli-plugins \\
+              -e docker_compose_version=v2.27.0
+          '"
+        '''
       }
     }
   }
