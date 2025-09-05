@@ -59,39 +59,39 @@ pipeline {
         //     }
         // }
 
-        stage('Build & push images (BE/FE/DB)') {
-            steps {
-                script {
-                    // sanitize namespace: lowercase, remove anything not a-z0-9-
-                    def ns = params.GHCR_NAMESPACE.toLowerCase().replaceAll(/[^a-z0-9-]/, '')
-                    env.BACKEND_IMAGE  = "ghcr.io/${ns}/rmit-store-backend"
-                    env.FRONTEND_IMAGE = "ghcr.io/${ns}/rmit-store-frontend"
-                    env.DB_IMAGE       = "ghcr.io/${ns}/rmit-store-db"
-                    env.IMAGE_TAG      = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
+        // stage('Build & push images (BE/FE/DB)') {
+        //     steps {
+        //         script {
+        //             // sanitize namespace: lowercase, remove anything not a-z0-9-
+        //             def ns = params.GHCR_NAMESPACE.toLowerCase().replaceAll(/[^a-z0-9-]/, '')
+        //             env.BACKEND_IMAGE  = "ghcr.io/${ns}/rmit-store-backend"
+        //             env.FRONTEND_IMAGE = "ghcr.io/${ns}/rmit-store-frontend"
+        //             env.DB_IMAGE       = "ghcr.io/${ns}/rmit-store-db"
+        //             env.IMAGE_TAG      = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
 
-                    withCredentials([string(credentialsId: 'GH_CR_FINE_GRAINED_TOKEN', variable: 'GH_TOKEN')]) {
-                        sh """
-                        echo "$GH_TOKEN" | docker login ghcr.io -u BennyBach1002 --password-stdin
+        //             withCredentials([string(credentialsId: 'GH_CR_FINE_GRAINED_TOKEN', variable: 'GH_TOKEN')]) {
+        //                 sh """
+        //                 echo "$GH_TOKEN" | docker login ghcr.io -u BennyBach1002 --password-stdin
 
-                        docker build -t ${BACKEND_IMAGE}:${IMAGE_TAG}  -f ci/Dockerfile.backend .
-                        docker tag ${BACKEND_IMAGE}:${IMAGE_TAG}  ${BACKEND_IMAGE}:latest
-                        docker push ${BACKEND_IMAGE}:${IMAGE_TAG}
-                        docker push ${BACKEND_IMAGE}:latest
+        //                 docker build -t ${BACKEND_IMAGE}:${IMAGE_TAG}  -f ci/Dockerfile.backend .
+        //                 docker tag ${BACKEND_IMAGE}:${IMAGE_TAG}  ${BACKEND_IMAGE}:latest
+        //                 docker push ${BACKEND_IMAGE}:${IMAGE_TAG}
+        //                 docker push ${BACKEND_IMAGE}:latest
 
-                        docker build -t ${FRONTEND_IMAGE}:${IMAGE_TAG} -f ci/Dockerfile.frontend .
-                        docker tag ${FRONTEND_IMAGE}:${IMAGE_TAG} ${FRONTEND_IMAGE}:latest
-                        docker push ${FRONTEND_IMAGE}:${IMAGE_TAG}
-                        docker push ${FRONTEND_IMAGE}:latest
+        //                 docker build -t ${FRONTEND_IMAGE}:${IMAGE_TAG} -f ci/Dockerfile.frontend .
+        //                 docker tag ${FRONTEND_IMAGE}:${IMAGE_TAG} ${FRONTEND_IMAGE}:latest
+        //                 docker push ${FRONTEND_IMAGE}:${IMAGE_TAG}
+        //                 docker push ${FRONTEND_IMAGE}:latest
 
-                        docker build -t ${DB_IMAGE}:${IMAGE_TAG} -f Dockerfile.db .
-                        docker tag ${DB_IMAGE}:${IMAGE_TAG} ${DB_IMAGE}:latest
-                        docker push ${DB_IMAGE}:${IMAGE_TAG}
-                        docker push ${DB_IMAGE}:latest
-                        """
-                    }
-                }
-            }
-        }
+        //                 docker build -t ${DB_IMAGE}:${IMAGE_TAG} -f Dockerfile.db .
+        //                 docker tag ${DB_IMAGE}:${IMAGE_TAG} ${DB_IMAGE}:latest
+        //                 docker push ${DB_IMAGE}:${IMAGE_TAG}
+        //                 docker push ${DB_IMAGE}:latest
+        //                 """
+        //             }
+        //         }
+        //     }
+        // }
 
         // stage('Deploy to Kubernetes') {
         //     steps {
