@@ -24,7 +24,7 @@ pipeline {
         sh 'rm -rf ws && mkdir -p ws'
         checkout([$class: 'GitSCM',
           branches: [[name: "*/${params.BRANCH_TO_BUILD}"]],
-          userRemoteConfigs: [[url: 'https://github.com/Charles2404200/prod']],
+          userRemoteConfigs: [[url: 'https://github.com/Charles2404200/prod/tree/ansible-prod']],
           extensions: [[ $class: 'RelativeTargetDirectory', relativeTargetDir: 'ws' ]]
         ])
         sh 'ls -la ws | head -n 30'
