@@ -1,0 +1,56 @@
+    version: "3.9"
+
+    services:
+      nginx:
+        # Use the custom NGINX build from the monitoring folder
+        build:
+          context: ../monitoring
+          dockerfile: Dockerfile.nginx
+        ports:
+          # Only expose port 80 to the host, as NGINX will route all traffic
+          - "80:80"
+        volumes:
+          - ../monitoring/nginx.conf:/etc/nginx/nginx.conf
+        # NGINX needs to wait for the other services to be ready before starting
+        depends_on:
+          - backend
+          - frontend
+
+      backend:
+        build:
+          context: ../../
+          dockerfile: ci/Dockerfile.backend
+        # The port is only exposed internally, NGINX will handle external traffic
+        ports:
+          - "5000:5000"
+        environment:
+          - PORT=5000
+          - MONGO_URI=mongodb+srv://RMIT_Store:123RMIT@rmitstore.uvixzgs.mongodb.net/rmit_ecommerce
+          - JWT_SECRET=my_secret_string
+          - CLIENT_URL=http://54.242.180.228
+          - BASE_API_URL=api
+        depends_on:
+          - mongo
+
+      frontend:
+        build:
+          context: ../../
+          dockerfile: ci/Dockerfile.frontend
+        # The port is only exposed internally, NGINX will handle external traffic
+        ports:
+          - "3000:80"
+        environment:
+          - REACT_APP_API_URL=http://54.242.180.228:5000
+        depends_on:
+          - backend
+
+      mongo:
+        image: mongo:5
+        restart: always
+        ports:
+          - "27017:27017"
+        volumes:
+          - mongo_data:/data/db
+
+    volumes:
+      mongo_data:
