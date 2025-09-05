@@ -1,35 +1,36 @@
 pipeline {
   agent any
-  //options { timestamps() }
+  options { skipDefaultCheckout(true) } // avoid implicit checkout that can hit perms issues
 
   parameters {
-    string(name: 'GHCR_NAMESPACE',   defaultValue: 'BennyBach1002',  description: 'GHCR namespace (GitHub user/org, lowercase, no @)')
-    string(name: 'BRANCH_TO_BUILD',  defaultValue: 'main',           description: 'Git branch to build')
-    string(name: 'STAGING_LIMIT',    defaultValue: 'lb,staging',     description: 'Ansible --limit for staging')
-    string(name: 'PROD_LIMIT',       defaultValue: 'prod_lb,prod',   description: 'Ansible --limit for production')
-    string(name: 'MAIL_TO',          defaultValue: 'devops@example.com', description: 'Notify email (optional)')
-    string(name: 'SLACK_CHANNEL',    defaultValue: '',               description: 'Slack channel (optional, requires Slack plugin)')
+    string(name: 'GHCR_NAMESPACE',  defaultValue: 'BennyBach1002', description: 'GHCR namespace (GitHub user/org, NOT an email)')
+    string(name: 'BRANCH_TO_BUILD', defaultValue: 'main',          description: 'Git branch to build')
+    string(name: 'DEPLOY_LIMIT',    defaultValue: 'lb,staging',    description: 'Ansible --limit hosts (e.g. "lb,staging" or "prod_lb,prod")')
   }
 
   environment {
     APP_NAME   = 'rmit-store'
     INVENTORY  = 'infra/ansible/inventory.ini'
     PLAYBOOK   = 'infra/ansible/site.yml'
-    // placeholders; will be rebuilt after we sanitize namespace
+
+    // placeholders; overwritten after we sanitize namespace
     BACKEND_IMAGE  = "ghcr.io/${params.GHCR_NAMESPACE}/rmit-store-backend"
     FRONTEND_IMAGE = "ghcr.io/${params.GHCR_NAMESPACE}/rmit-store-frontend"
     DB_IMAGE       = "ghcr.io/${params.GHCR_NAMESPACE}/rmit-store-db"
   }
 
   stages {
-    stage('Checkout') {
+    stage('Checkout (clean)') {
       steps {
-        checkout scm
-        sh "git checkout ${params.BRANCH_TO_BUILD}"
+        deleteDir()
+        checkout([$class: 'GitSCM',
+          branches: [[name: "*/${params.BRANCH_TO_BUILD}"]],
+          userRemoteConfigs: [[url: 'https://github.com/Charles2404200/prod']]
+        ])
       }
     }
 
-    stage('GHCR Login (controller)') {
+    stage('Login to GHCR (controller)') {
       steps {
         withCredentials([ usernamePassword(credentialsId: 'GHCR_USER', usernameVariable: 'GH_USER', passwordVariable: 'GH_TOKEN') ]) {
           sh 'echo "$GH_TOKEN" | docker login ghcr.io -u "$GH_USER" --password-stdin'
@@ -40,14 +41,19 @@ pipeline {
     stage('Build & Push Images (BE/FE/DB)') {
       steps {
         script {
-          // sanitize namespace -> lowercase, a-z0-9-
+          // sanitize namespace -> lowercase and only a-z0-9-
           def ns = params.GHCR_NAMESPACE.toLowerCase().replaceAll(/[^a-z0-9-]/, '')
+          if (ns != params.GHCR_NAMESPACE) {
+            echo "NOTE: sanitized GHCR namespace '${params.GHCR_NAMESPACE}' -> '${ns}'"
+          }
           env.BACKEND_IMAGE  = "ghcr.io/${ns}/rmit-store-backend"
           env.FRONTEND_IMAGE = "ghcr.io/${ns}/rmit-store-frontend"
           env.DB_IMAGE       = "ghcr.io/${ns}/rmit-store-db"
           env.IMAGE_TAG      = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
 
           sh """
+            set -e
+
             echo ">> Backend:  ${BACKEND_IMAGE}:${IMAGE_TAG}"
             docker build -t ${BACKEND_IMAGE}:${IMAGE_TAG}  -f ci/Dockerfile.backend .
             docker tag   ${BACKEND_IMAGE}:${IMAGE_TAG}     ${BACKEND_IMAGE}:latest
@@ -66,17 +72,19 @@ pipeline {
             docker push  ${DB_IMAGE}:${IMAGE_TAG}
             docker push  ${DB_IMAGE}:latest
 
-            docker image prune -f
+            docker image prune -f || true
           """
         }
       }
     }
 
-    stage('Deploy STAGING (Ansible → Swarm + NGINX)') {
+    stage('Deploy with Ansible (Docker Swarm + NGINX)') {
       steps {
         withCredentials([ usernamePassword(credentialsId: 'GHCR_USER', usernameVariable: 'GH_USER', passwordVariable: 'GH_TOKEN') ]) {
           sh """
-            # ensure ansible present
+            set -e
+
+            # Ensure Ansible is available on the controller
             if ! command -v ansible-playbook >/dev/null 2>&1; then
               if command -v apt-get >/dev/null 2>&1; then
                 sudo apt-get update && sudo apt-get install -y ansible
@@ -87,31 +95,12 @@ pipeline {
               fi
             fi
 
-            # run playbook on staging groups
-            ansible-playbook -i ${INVENTORY} ${PLAYBOOK} \\
-              -l ${params.STAGING_LIMIT} \\
-              -e image_tag=${IMAGE_TAG} \\
-              -e ghcr_user=${GH_USER} \\
-              -e ghcr_token=${GH_TOKEN}
-          """
-        }
-      }
-    }
+            # Optional: install Galaxy deps if you add them later
+            test -f infra/ansible/requirements.yml && ansible-galaxy collection install -r infra/ansible/requirements.yml || true
 
-    stage('Approve Promotion to PROD') {
-      steps {
-        script {
-          input(message: "Promote ${env.IMAGE_TAG} to PROD?", ok: "Deploy")
-        }
-      }
-    }
-
-    stage('Deploy PROD (Ansible → Swarm + NGINX)') {
-      steps {
-        withCredentials([ usernamePassword(credentialsId: 'GHCR_USER', usernameVariable: 'GH_USER', passwordVariable: 'GH_TOKEN') ]) {
-          sh """
+            # Run your playbook on the selected hosts; pass the tag and GHCR creds
             ansible-playbook -i ${INVENTORY} ${PLAYBOOK} \\
-              -l ${params.PROD_LIMIT} \\
+              -l ${params.DEPLOY_LIMIT} \\
               -e image_tag=${IMAGE_TAG} \\
               -e ghcr_user=${GH_USER} \\
               -e ghcr_token=${GH_TOKEN}
@@ -122,29 +111,7 @@ pipeline {
   }
 
   post {
-    success {
-      script {
-        if (params.MAIL_TO) {
-          mail to: params.MAIL_TO,
-               subject: "[SUCCESS] ${env.APP_NAME} ${env.IMAGE_TAG} → staging/prod",
-               body: "Build and Swarm deploy succeeded. Tag: ${env.IMAGE_TAG}\n${env.BUILD_URL}"
-        }
-        if (params.SLACK_CHANNEL) {
-          slackSend(channel: params.SLACK_CHANNEL, message: "✅ ${env.APP_NAME} ${env.IMAGE_TAG} deployed to staging/prod\n${env.BUILD_URL}")
-        }
-      }
-    }
-    failure {
-      script {
-        if (params.MAIL_TO) {
-          mail to: params.MAIL_TO,
-               subject: "[FAIL] ${env.APP_NAME} ${env.BUILD_TAG}",
-               body: "Pipeline failed. Check logs: ${env.BUILD_URL}"
-        }
-        if (params.SLACK_CHANNEL) {
-          slackSend(channel: params.SLACK_CHANNEL, message: "❌ ${env.APP_NAME} ${env.BUILD_TAG} failed\n${env.BUILD_URL}")
-        }
-      }
-    }
+    success { echo "✅ ${env.APP_NAME} ${env.IMAGE_TAG} built & deployed to ${params.DEPLOY_LIMIT} via Docker Swarm + NGINX." }
+    failure { echo "❌ Pipeline failed. Check console for details." }
   }
 }
