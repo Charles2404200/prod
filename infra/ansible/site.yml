@@ -7,7 +7,6 @@
 - hosts: lb
   become: true
   roles:
-    - sysctl
     - nginx
     - node_exporter
     - nginx_exporter
