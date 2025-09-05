@@ -5,7 +5,7 @@ pipeline {
   parameters {
     string(name: 'GHCR_NAMESPACE',  defaultValue: 'BennyBach1002', description: 'GitHub user/org (forced lowercase for Docker)')
     string(name: 'BRANCH_TO_BUILD', defaultValue: 'ansible-prod',  description: 'Git branch to build')
-    string(name: 'DEPLOY_LIMIT',    defaultValue: 'lb,prod',       description: 'Ansible --limit (e.g. "lb,staging" or "lb,prod")')
+    string(name: 'DEPLOY_LIMIT',    defaultValue: 'lb,staging',    description: 'Ansible --limit (e.g. "lb,staging" or "lb,prod")')
   }
 
   environment {
@@ -41,7 +41,6 @@ pipeline {
       steps {
         dir('ws') {
           script {
-            // sanitize namespace -> lowercase, drop invalid chars
             def ns = params.GHCR_NAMESPACE.toLowerCase().replaceAll(/[^a-z0-9-]/, '')
             if (ns != params.GHCR_NAMESPACE) {
               echo "NOTE: sanitized GHCR namespace '${params.GHCR_NAMESPACE}' -> '${ns}'"
@@ -53,17 +52,15 @@ pipeline {
 
             sh """
               set -e
-              echo "TAG=${TAG}"
-              echo "BE=${BACKEND}"
-              echo "FE=${FRONTEND}"
+              echo TAG=${TAG}
+              echo BE=${BACKEND}
+              echo FE=${FRONTEND}
 
-              # Backend
               docker build --pull --no-cache -t ${BACKEND}:${TAG}  -f ci/Dockerfile.backend .
               docker tag ${BACKEND}:${TAG} ${BACKEND}:latest
               docker push ${BACKEND}:${TAG}
               docker push ${BACKEND}:latest
 
-              # Frontend
               docker build --pull --no-cache -t ${FRONTEND}:${TAG} -f ci/Dockerfile.frontend .
               docker tag ${FRONTEND}:${TAG} ${FRONTEND}:latest
               docker push ${FRONTEND}:${TAG}
@@ -72,7 +69,6 @@ pipeline {
               docker image prune -f || true
             """
 
-            // expose to next stage
             env.IMAGE_TAG      = TAG
             env.BACKEND_IMAGE  = BACKEND
             env.FRONTEND_IMAGE = FRONTEND
@@ -87,7 +83,7 @@ pipeline {
                                            usernameVariable: 'GH_USER',
                                            passwordVariable: 'GH_TOKEN') ]) {
           dir('ws') {
-            sh """
+            sh '''
               set -e
               if ! command -v ansible-playbook >/dev/null 2>&1; then
                 if command -v apt-get >/dev/null 2>&1; then
@@ -101,14 +97,15 @@ pipeline {
 
               test -f infra/ansible/requirements.yml && ansible-galaxy collection install -r infra/ansible/requirements.yml || true
 
-              ansible-playbook -i ${INVENTORY} ${PLAYBOOK} \\
-                -l ${params.DEPLOY_LIMIT} \\
-                -e backend_image=${BACKEND_IMAGE} \\
-                -e frontend_image=${FRONTEND_IMAGE} \\
-                -e image_tag=${IMAGE_TAG} \\
-                -e ghcr_user=${GH_USER} \\
+              ANSIBLE_HOST_KEY_CHECKING=False \
+              ansible-playbook -i ${INVENTORY} ${PLAYBOOK} \
+                -l ${DEPLOY_LIMIT} \
+                -e backend_image=${BACKEND_IMAGE} \
+                -e frontend_image=${FRONTEND_IMAGE} \
+                -e image_tag=${IMAGE_TAG} \
+                -e ghcr_user=${GH_USER} \
                 -e ghcr_token=${GH_TOKEN}
-            """
+            '''
           }
         }
       }

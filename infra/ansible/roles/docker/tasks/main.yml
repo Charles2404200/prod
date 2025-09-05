@@ -8,7 +8,7 @@
       - tar
     state: present
 
-# 1) Install Docker Engine (prefer repo pkg; fall back to convenience script)
+# 1) Docker engine (pkg first, fallback to convenience script)
 - name: Install Docker engine via package if available
   become: true
   package:
@@ -23,7 +23,7 @@
   args: { executable: /bin/bash }
   when: docker_pkg is failed
 
-# 2) Configure daemon (log rotation, cgroup driver, faster pulls)
+# 2) Daemon config
 - name: Write /etc/docker/daemon.json
   become: true
   copy:
@@ -39,7 +39,7 @@
       }
   notify: Restart docker
 
-# 3) Enable/Start Docker & allow current user
+# 3) Enable/Start Docker, grant user
 - name: Enable & start Docker
   become: true
   service:
@@ -54,7 +54,7 @@
     groups: docker
     append: true
 
-# 4) Install Docker Compose v2 (prefer package; fallback to plugin binary)
+# 4) Docker Compose v2 (pkg if possible; otherwise plugin binary)
 - name: Install docker compose plugin via package if present
   become: true
   package:
@@ -70,4 +70,29 @@
     state: directory
     mode: "0755"
 
-- name: Install docker compose v2 plugin (fallback binar
+- name: Install docker compose v2 plugin (fallback binary)
+  become: true
+  get_url:
+    url: "https://github.com/docker/compose/releases/download/{{ docker_compose_version }}/docker-compose-linux-x86_64"
+    dest: "{{ docker_cli_plugins_dir }}/docker-compose"
+    mode: "0755"
+  when: compose_pkg is failed
+
+- name: Ensure legacy docker-compose symlink (optional)
+  become: true
+  file:
+    src: "{{ docker_cli_plugins_dir }}/docker-compose"
+    dest: /usr/local/bin/docker-compose
+    state: link
+
+# 5) Verify
+- name: Show docker versions
+  become: true
+  shell: |
+    docker --version && docker compose version
+  register: docker_versions
+  changed_when: false
+
+- name: Print docker versions
+  debug:
+    var: docker_versions.stdout_lines

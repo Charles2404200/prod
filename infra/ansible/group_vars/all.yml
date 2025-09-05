@@ -11,7 +11,7 @@ mongo_published:    27017       # publish only if you need external access
 
 # app env
 mongo_local: true               # use in-box Mongo (toggle false to use Atlas)
-mongo_uri: ""                   # set if mongo_local=false
+mongo_uri: "mongodb+srv://RMIT_Store:123RMIT@rmitstore.uvixzgs.mongodb.net/?retryWrites=true&w=majority&appName=RMITStore"                   # set if mongo_local=false
 jwt_secret: "my_secret_string"
 
 # deploy
@@ -29,6 +29,6 @@ api_burst: 40
 api_rate_zone_size: "20m"
 
 # docker role extras
-docker_compose_version: "v2.27.0"
+docker_compose_version: "v1"
 docker_cli_plugins_dir: "/usr/local/lib/docker/cli-plugins"
 docker_user: "{{ ansible_user | default('ec2-user') }}"
