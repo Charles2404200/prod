@@ -1,0 +1,50 @@
+version: "3.9"
+#im not sure if this is supposed to be here or other folders but leave for now
+
+services:
+  backend:
+    #context:
+    #dockerfile:
+    image: ghcr.io/benbach2001/rmit-store-backend:latest
+    ports:
+      - "5000:5000"
+    environment:
+      - PORT=5000
+      - MONGO_URI=mongodb+srv://RMIT_Store:123RMIT@rmitstore.uvixzgs.mongodb.net/?retryWrites=true&w=majority&appName=RMITStore
+      - CLIENT_URL=http://54.242.180.228:3000
+      - BASE_API_URL=api
+    depends_on:
+      - mongo
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+
+  frontend:
+    #context:
+    #dockerfile:
+    image: ghcr.io/benbach2001/rmit-store-backend:latest
+    ports:
+      - "3000:80"
+    environment:
+      - REACT_APP_API_URL=http://54.242.180.228:5000
+    depends_on:
+      - backend
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+
+  mongo:
+    image: mongo:5
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+
+volumes:
+  mongo_data:
