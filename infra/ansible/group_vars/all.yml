@@ -30,6 +30,6 @@ api_burst: 40
 api_rate_zone_size: "20m"
 
 # docker role extras (Amazon Linux 2023 friendly)
-docker_compose_version: "v2.27.0"          # <-- was "v1"
+docker_compose_version: "v1"          # <-- was "v1"
 docker_cli_plugins_dir: "/usr/libexec/docker/cli-plugins"  # <-- AL2023 path
 docker_user: "{{ ansible_user | default('ec2-user') }}"
