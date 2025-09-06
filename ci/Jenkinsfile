@@ -103,106 +103,82 @@ pipeline {
     }
 
     // ★ Deploy directly to 34.227.19.111 (compose)
-    stage('Deploy to EC2 (34.227.19.111)') {
-      steps {
-        withCredentials([
-          usernamePassword(credentialsId: 'GHCR_USER', usernameVariable: 'GH_USER', passwordVariable: 'GH_TOKEN'),
-          sshUserPrivateKey(credentialsId: 'ansible-ec2-key', keyFileVariable: 'SSH_KEY')
-        ]) {
-          sh """
-            set -euo pipefail
-            chmod 600 ${SSH_KEY}
+stage('Deploy to EC2 (34.227.19.111)') {
+  steps {
+    withCredentials([
+      usernamePassword(credentialsId: 'GHCR_USER', usernameVariable: 'GH_USER', passwordVariable: 'GH_TOKEN'),
+      sshUserPrivateKey(credentialsId: 'ansible-ec2-key', keyFileVariable: 'SSH_KEY')
+    ]) {
+      sh '''#!/usr/bin/env bash
+set -euo pipefail
+chmod 600 "$SSH_KEY"
 
-            echo "[deploy] SSH into ${CTRL_USER}@${CTRL_HOST}"
-            ssh -o StrictHostKeyChecking=no -i ${SSH_KEY} ${CTRL_USER}@${CTRL_HOST} bash -s <<EOF
-              set -euo pipefail
+echo "[deploy] SSH into $CTRL_USER@$CTRL_HOST"
+ssh -o StrictHostKeyChecking=no -i "$SSH_KEY" "$CTRL_USER@$CTRL_HOST" bash -s <<EOF
+set -euo pipefail
 
-              # Ensure docker + compose
-              if ! command -v docker >/dev/null 2>&1; then
-                sudo yum update -y
-                sudo amazon-linux-extras enable docker || true
-                sudo yum install -y docker
-                sudo systemctl enable --now docker
-                sudo usermod -aG docker ${CTRL_USER}
-              fi
-              mkdir -p ~/.docker/cli-plugins/
-              if ! docker compose version >/dev/null 2>&1; then
-                curl -SL https://github.com/docker/compose/releases/download/v2.27.0/docker-compose-linux-x86_64 \\
-                  -o ~/.docker/cli-plugins/docker-compose
-                chmod +x ~/.docker/cli-plugins/docker-compose
-              fi
+# Ensure docker + compose
+if ! command -v docker >/dev/null 2>&1; then
+  sudo yum update -y
+  sudo amazon-linux-extras enable docker || true
+  sudo yum install -y docker
+  sudo systemctl enable --now docker
+  sudo usermod -aG docker "$CTRL_USER"
+fi
 
-              echo "[docker] Login GHCR"
-              echo "${GH_TOKEN}" | docker login ghcr.io -u "${GH_USER}" --password-stdin
+mkdir -p ~/.docker/cli-plugins/
+if ! docker compose version >/dev/null 2>&1; then
+  curl -SL https://github.com/docker/compose/releases/download/v2.27.0/docker-compose-linux-x86_64 \
+    -o ~/.docker/cli-plugins/docker-compose
+  chmod +x ~/.docker/cli-plugins/docker-compose
+fi
 
-              echo "[docker] Write docker-compose.yml"
-              mkdir -p ~/deploy
-              cat > ~/deploy/docker-compose.yml <<YAML
-              version: "3.8"
-              services:
-                backend:
-                  image: ${BACKEND_IMAGE}:${IMAGE_TAG}
-                  environment:
-                    MONGO_URI: ${MONGO_URI}
-                    JWT_SECRET: ${JWT_SECRET}
-                    PORT: 3000
-                  ports:
-                    - "3000:3000"
-                  restart: unless-stopped
+echo "[docker] Login GHCR"
+echo "$GH_TOKEN" | docker login ghcr.io -u "$GH_USER" --password-stdin
 
-                frontend:
-                  image: ${FRONTEND_IMAGE}:${IMAGE_TAG}
-                  environment:
-                    VITE_API_BASE: http://${FRONTEND_DOMAIN}:3000
-                  ports:
-                    - "80:80"
-                  depends_on:
-                    - backend
-                  restart: unless-stopped
-              YAML
+echo "[docker] Write docker-compose.yml"
+mkdir -p ~/deploy
+cat > ~/deploy/docker-compose.yml <<YAML
+version: "3.8"
+services:
+  backend:
+    image: $BACKEND_IMAGE:$IMAGE_TAG
+    environment:
+      MONGO_URI: $MONGO_URI
+      JWT_SECRET: $JWT_SECRET
+      PORT: 3000
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
 
-              echo "[docker] Up containers"
-              cd ~/deploy
-              docker compose pull
-              docker compose up -d
+  frontend:
+    image: $FRONTEND_IMAGE:$IMAGE_TAG
+    environment:
+      VITE_API_BASE: http://$FRONTEND_DOMAIN:3000
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+YAML
 
-              echo "[health] curl http://${FRONTEND_DOMAIN}/"
-              for i in {1..30}; do
-                code=$(curl -sS -o /dev/null -w "%{http_code}" "http://${FRONTEND_DOMAIN}/" || true)
-                [[ "\\$code" =~ ^2|3 ]] && { echo "OK HTTP \\$code"; exit 0; }
-                echo "wait(\\$i) -> \\$code"; sleep 2
-              done
-              echo "ERROR: site not healthy"
-              exit 1
-            EOF
-          """
-        }
-      }
+echo "[docker] Up containers"
+cd ~/deploy
+docker compose pull
+docker compose up -d
+
+echo "[health] curl http://$FRONTEND_DOMAIN/"
+for i in {1..30}; do
+  code=$(curl -sS -o /dev/null -w "%{http_code}" "http://$FRONTEND_DOMAIN/" || true)
+  [[ "$code" =~ ^2|3 ]] && { echo "OK HTTP $code"; exit 0; }
+  echo "wait($i) -> $code"; sleep 2
+done
+echo "ERROR: site not healthy"
+exit 1
+EOF
+'''
     }
-  } // stages
-
-  post {
-    success {
-      echo """
-✅ ${env.APP_NAME} deployed successfully
-
-Build:     ${env.BUILD_URL}
-Branch:    ${params.BRANCH_TO_BUILD}
-Tag:       ${env.IMAGE_TAG}
-
-Frontend:  http://${env.FRONTEND_DOMAIN}
-API:       http://${env.FRONTEND_DOMAIN}:3000
-
-Images:
-  - ${env.FRONTEND_IMAGE}:${env.IMAGE_TAG}
-  - ${env.BACKEND_IMAGE}:${env.IMAGE_TAG}
-"""
-    }
-    failure {
-      echo "❌ Pipeline failed. See console log: ${env.BUILD_URL}console"
-    }
-    always {
-      echo "Build URL: ${env.BUILD_URL}"
-    }
+  }
+}
   }
 }
