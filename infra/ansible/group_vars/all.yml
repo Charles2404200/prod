@@ -11,7 +11,7 @@ mongo_published:    27017       # publish only if you need external access
 
 # app env
 mongo_local: true               # use in-box Mongo (toggle false to use Atlas)
-mongo_uri: "mongodb+srv://RMIT_Store:123RMIT@rmitstore.uvixzgs.mongodb.net/?retryWrites=true&w=majority&appName=RMITStore"                   # set if mongo_local=false
+mongo_uri: "mongodb+srv://RMIT_Store:123RMIT@ac-mr6vgxa-shard-00-00.uvixzgs.mongodb.net/admin?authSource=admin&replicaSet=atlas-gbr5dj-shard-0&retryWrites=true&w=majority&appName=RMITStore"                   # set if mongo_local=false
 jwt_secret: "my_secret_string"
 
 # deploy
