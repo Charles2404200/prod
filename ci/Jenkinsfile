@@ -79,14 +79,16 @@ pipeline {
 
 stage('Deploy with Ansible (Swarm + NGINX)') {
   environment {
-    CTRL_HOST    = '35.153.184.85'          // controller public IP (no http://)
+    CTRL_HOST    = '35.153.184.85'            // controller public IP (no http://)
+    ADVERTISE_IP = '35.153.184.85'            // same public IP for nginx/swarm
     CTRL_USER    = 'ec2-user'
+
     REMOTE_WORK  = '/home/ec2-user/deploy'
     REMOTE_KEY   = '/home/ec2-user/edge.pem'
+
     INVENTORY    = 'infra/ansible/inventory.ini'
     PLAYBOOK     = 'infra/ansible/site.yml'
     DEPLOY_LIMIT = 'lb,staging'
-    ADVERTISE_IP = '35.153.184.85'          // for Swarm + NGINX server_name
   }
   steps {
     withCredentials([
@@ -101,7 +103,8 @@ stage('Deploy with Ansible (Swarm + NGINX)') {
 
           echo "[preflight] Test SSH: ${CTRL_USER}@${CTRL_HOST}:22"
           chmod 600 "${CTRL_KEY}"
-          ssh -o StrictHostKeyChecking=no -i "${CTRL_KEY}" "${CTRL_USER}@${CTRL_HOST}" 'echo ok' >/dev/null
+          ssh -vvv -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=no \
+              -i "${CTRL_KEY}" "${CTRL_USER}@${CTRL_HOST}" 'echo ok'
 
           echo "[deploy] Package Ansible folder…"
           test -d infra/ansible || { echo "infra/ansible not found"; exit 2; }
@@ -110,97 +113,82 @@ stage('Deploy with Ansible (Swarm + NGINX)') {
           echo "[deploy] Push bundle + key to controller ${CTRL_HOST}…"
           ssh -o StrictHostKeyChecking=no -i "${CTRL_KEY}" "${CTRL_USER}@${CTRL_HOST}" "mkdir -p '${REMOTE_WORK}'"
           scp -o StrictHostKeyChecking=no -i "${CTRL_KEY}" ansible.tgz "${CTRL_USER}@${CTRL_HOST}:${REMOTE_WORK}/ansible.tgz"
-          # key Ansible will use (controller -> itself by public IP)
+          # copy same key to controller for Ansible to use
           scp -o StrictHostKeyChecking=no -i "${CTRL_KEY}" "${CTRL_KEY}" "${CTRL_USER}@${CTRL_HOST}:${REMOTE_KEY}"
+          ssh -o StrictHostKeyChecking=no -i "${CTRL_KEY}" "${CTRL_USER}@${CTRL_HOST}" "chmod 600 '${REMOTE_KEY}'"
 
           echo "[deploy] Run Ansible on controller…"
-          ssh -tt -o StrictHostKeyChecking=no -i "${CTRL_KEY}" "${CTRL_USER}@${CTRL_HOST}" bash -lc "'
-            set -euo pipefail
+          # pass all needed env to the remote shell so heredoc can use them
+          ssh -tt -o StrictHostKeyChecking=no -i "${CTRL_KEY}" \
+            "${CTRL_USER}@${CTRL_HOST}" \
+            "FRONTEND_IMAGE='${FRONTEND_IMAGE}' BACKEND_IMAGE='${BACKEND_IMAGE}' IMAGE_TAG='${IMAGE_TAG}' GH_USER='${GH_USER}' GH_TOKEN='${GH_TOKEN}' MONGO_URI='${MONGO_URI}' JWT_SECRET='${JWT_SECRET}' ADVERTISE_IP='${ADVERTISE_IP}' CTRL_USER='${CTRL_USER}' REMOTE_WORK='${REMOTE_WORK}' REMOTE_KEY='${REMOTE_KEY}' INVENTORY='${INVENTORY}' PLAYBOOK='${PLAYBOOK}' DEPLOY_LIMIT='${DEPLOY_LIMIT}' bash -s" <<'REMOTE'
+set -euo pipefail
 
-            # Ensure Ansible
-            if ! command -v ansible-playbook >/dev/null 2>&1; then
-              if command -v yum >/dev/null 2>&1; then
-                sudo yum -y install ansible python3 || true
-              elif command -v apt-get >/dev/null 2>&1; then
-                sudo apt-get update && sudo apt-get install -y ansible python3 || true
-              fi
-            fi
+# Ensure Ansible
+if ! command -v ansible-playbook >/dev/null 2>&1; then
+  if command -v yum >/dev/null 2>&1; then
+    sudo yum -y install ansible python3 || true
+  elif command -v apt-get >/dev/null 2>&1; then
+    sudo apt-get update && sudo apt-get install -y ansible python3 || true
+  fi
+fi
 
-            chmod 600 ${REMOTE_KEY}
+# Unpack repo
+rm -rf "${REMOTE_WORK}/infra" || true
+tar xzf "${REMOTE_WORK}/ansible.tgz" -C "${REMOTE_WORK}"
+cd "${REMOTE_WORK}"
 
-            # Unpack repo
-            rm -rf ${REMOTE_WORK}/infra || true
-            tar xzf ${REMOTE_WORK}/ansible.tgz -C ${REMOTE_WORK}
-            cd ${REMOTE_WORK}
-
-            # Dynamic inventory: point both groups to the same public IP
-            cat > ${INVENTORY} <<EOF
+# Generate inventory that forces PUBLIC IP for both groups
+cat > "${INVENTORY}" <<EOF
 [lb]
 edge-1 ansible_host=${ADVERTISE_IP} ansible_user=${CTRL_USER} ansible_ssh_private_key_file=${REMOTE_KEY}
-
 [staging]
 edge-1 ansible_host=${ADVERTISE_IP} ansible_user=${CTRL_USER} ansible_ssh_private_key_file=${REMOTE_KEY}
-
 [all:vars]
 ansible_python_interpreter=/usr/bin/python3
 EOF
 
-            # group vars override so nginx serves the public IP
-            mkdir -p infra/ansible/group_vars
-            cat > infra/ansible/group_vars/all.yml <<YML
+# group_vars override so nginx serves http://${ADVERTISE_IP}/
+mkdir -p infra/ansible/group_vars
+cat > infra/ansible/group_vars/all.yml <<YML
 frontend_image: "${FRONTEND_IMAGE}"
 backend_image:  "${BACKEND_IMAGE}"
 image_tag:      "${IMAGE_TAG}"
 frontend_http_port: 80
 backend_staging_port: 3000
 staging_domain: "${ADVERTISE_IP}"
+deploy_root: "/opt/app"
+mongo_uri: "${MONGO_URI}"
+jwt_secret: "${JWT_SECRET}"
 YML
 
-            # Optional: initialize Docker Swarm advertised on public IP
-            if command -v docker >/dev/null 2>&1; then
-              if ! docker info --format "{{.Swarm.LocalNodeState}}" 2>/dev/null | grep -qi active; then
-                sudo docker swarm init --advertise-addr "${ADVERTISE_IP}" || true
-              fi
-            fi
+# Optional: init Swarm (idempotent)
+if command -v docker >/dev/null 2>&1; then
+  if ! docker info --format "{{.Swarm.LocalNodeState}}" 2>/dev/null | grep -qi active; then
+    sudo docker swarm init --advertise-addr "${ADVERTISE_IP}" || true
+  fi
+fi
 
-            # Collections if declared
-            if [ -f infra/ansible/requirements.yml ]; then
-              ansible-galaxy collection install -p ./collections -r infra/ansible/requirements.yml
-              export ANSIBLE_COLLECTIONS_PATHS="./collections:$HOME/.ansible/collections:/usr/share/ansible/collections"
-            fi
+# Collections (and make our path first to silence warning)
+if [ -f infra/ansible/requirements.yml ]; then
+  ansible-galaxy collection install -p "${REMOTE_WORK}/collections" -r infra/ansible/requirements.yml
+  export ANSIBLE_COLLECTIONS_PATHS="${REMOTE_WORK}/collections:$HOME/.ansible/collections:/usr/share/ansible/collections"
+fi
 
-            export ANSIBLE_STDOUT_CALLBACK=yaml
-            export ANSIBLE_HOST_KEY_CHECKING=False
+export ANSIBLE_STDOUT_CALLBACK=yaml
+export ANSIBLE_HOST_KEY_CHECKING=False
 
-            # Run playbook (pass secrets from Jenkins!)
-            ansible-playbook -i ${INVENTORY} ${PLAYBOOK} \\
-              -l ${DEPLOY_LIMIT} \\
-              -e env=staging \\
-              -e docker_user=${CTRL_USER} \\
-              -e docker_cli_plugins_dir=/usr/libexec/docker/cli-plugins \\
-              -e docker_compose_version=v2.27.0 \\
-              -e deploy_root=/opt/app \\
-              -e backend_image=${BACKEND_IMAGE} \\
-              -e frontend_image=${FRONTEND_IMAGE} \\
-              -e image_tag=${IMAGE_TAG} \\
-              -e ghcr_user=${GH_USER} \\
-              -e ghcr_token=${GH_TOKEN} \\
-              -e "mongo_uri=${MONGO_URI}" \\
-              -e "jwt_secret=${JWT_SECRET}"
-          '"
+# *** SINGLE-LINE ansible-playbook to avoid broken continuations ***
+ansible-playbook -i "${INVENTORY}" "${PLAYBOOK}" -l "${DEPLOY_LIMIT}" --private-key "${REMOTE_KEY}" -e env=staging -e docker_user="${CTRL_USER}" -e docker_cli_plugins_dir=/usr/libexec/docker/cli-plugins -e docker_compose_version=v2.27.0 -e deploy_root=/opt/app -e backend_image="${BACKEND_IMAGE}" -e frontend_image="${FRONTEND_IMAGE}" -e image_tag="${IMAGE_TAG}" -e ghcr_user="${GH_USER}" -e ghcr_token="${GH_TOKEN}" -e "mongo_uri=${MONGO_URI}" -e "jwt_secret=${JWT_SECRET}"
+REMOTE
 
           echo "[verify] Wait for http://${ADVERTISE_IP}/"
           for i in {1..45}; do
             code=$(curl -sS -o /dev/null -w "%{http_code}" "http://${ADVERTISE_IP}/" || true)
-            if [[ "$code" =~ ^2|3 ]]; then
-              echo "OK: HTTP $code"
-              exit 0
-            fi
-            echo "Waiting (attempt $i): got $code"
-            sleep 2
+            if [[ "$code" =~ ^2|3 ]]; then echo "OK: HTTP $code"; exit 0; fi
+            echo "Waiting (attempt $i): got $code"; sleep 2
           done
-          echo "ERROR: site did not become healthy at http://${ADVERTISE_IP}/"
-          exit 1
+          echo "ERROR: site did not become healthy at http://${ADVERTISE_IP}/"; exit 1
         '''
       }
     }
