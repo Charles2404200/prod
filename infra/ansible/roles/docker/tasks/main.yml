@@ -1,60 +1,4 @@
----
-- name: Ensure base packages
-  become: true
-  package:
-    name:
-      - curl
-      - git
-      - tar
-    state: present
-
-# 1) Docker engine (pkg first, fallback to convenience script)
-- name: Install Docker engine via package if available
-  become: true
-  package:
-    name: docker
-    state: present
-  register: docker_pkg
-  failed_when: false
-
-- name: Install Docker via convenience script (fallback)
-  become: true
-  shell: curl -fsSL https://get.docker.com | sh
-  args: { executable: /bin/bash }
-  when: docker_pkg is failed
-
-# 2) Daemon config
-- name: Write /etc/docker/daemon.json
-  become: true
-  copy:
-    dest: /etc/docker/daemon.json
-    mode: "0644"
-    content: |
-      {
-        "log-driver": "json-file",
-        "log-opts": { "max-size": "10m", "max-file": "3" },
-        "exec-opts": ["native.cgroupdriver=systemd"],
-        "max-concurrent-downloads": 10,
-        "max-concurrent-uploads": 10
-      }
-  notify: Restart docker
-
-# 3) Enable/Start Docker, grant user
-- name: Enable & start Docker
-  become: true
-  service:
-    name: docker
-    state: started
-    enabled: true
-
-- name: Add user to docker group
-  become: true
-  user:
-    name: "{{ docker_user }}"
-    groups: docker
-    append: true
-
-# 4) Docker Compose v2 (pkg if possible; otherwise plugin binary)
+# --- Docker Compose v2 (pkg if possible; otherwise download & link) ---
 - name: Install docker compose plugin via package if present
   become: true
   package:
@@ -70,28 +14,63 @@
     state: directory
     mode: "0755"
 
-- name: Install docker compose v2 plugin (fallback binary)
+# Probe common locations where the compose plugin might live
+- name: Probe for compose plugin candidates
+  become: true
+  stat:
+    path: "{{ item }}"
+  register: compose_candidates
+  loop:
+    - "{{ docker_cli_plugins_dir }}/docker-compose"
+    - /usr/libexec/docker/cli-plugins/docker-compose
+    - /usr/lib/docker/cli-plugins/docker-compose
+    - /usr/local/lib/docker/cli-plugins/docker-compose
+    - /usr/bin/docker-compose
+
+- name: Pick first existing compose path (if any)
+  set_fact:
+    compose_src: >-
+      {{
+        (compose_candidates.results
+         | selectattr('stat.exists','equalto',true)
+         | map(attribute='stat.path')
+         | list | first) | default('')
+      }}
+
+# If pkg didn’t provide a binary anywhere, fetch the official plugin
+- name: Install docker compose v2 plugin (download fallback)
   become: true
   get_url:
     url: "https://github.com/docker/compose/releases/download/{{ docker_compose_version }}/docker-compose-linux-x86_64"
     dest: "{{ docker_cli_plugins_dir }}/docker-compose"
     mode: "0755"
-  when: compose_pkg is failed
+  when: compose_src == ''
+  register: compose_dl
 
-- name: Ensure legacy docker-compose symlink (optional)
+- name: Use downloaded compose as source if we just fetched it
+  set_fact:
+    compose_src: "{{ docker_cli_plugins_dir }}/docker-compose"
+  when: compose_src == '' and compose_dl is changed
+
+# Create legacy symlink only when we have a real source
+- name: Ensure legacy docker-compose symlink
   become: true
   file:
-    src: "{{ docker_cli_plugins_dir }}/docker-compose"
+    src: "{{ compose_src }}"
     dest: /usr/local/bin/docker-compose
     state: link
+    force: true
+  when: compose_src != ''
 
-# 5) Verify
+# --- verify compose works; fail clearly if not ---
 - name: Show docker versions
   become: true
   shell: |
+    set -o pipefail
     docker --version && docker compose version
   register: docker_versions
   changed_when: false
+  failed_when: docker_versions.rc != 0
 
 - name: Print docker versions
   debug:
