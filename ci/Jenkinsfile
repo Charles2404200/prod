@@ -51,7 +51,6 @@ pipeline {
 
           env.BACKEND_IMAGE  = "ghcr.io/${ns}/rmit-store-backend"
           env.FRONTEND_IMAGE = "ghcr.io/${ns}/rmit-store-frontend"
-          env.DB_IMAGE       = "ghcr.io/${ns}/rmit-store-db"
 
           env.IMAGE_TAG = sh(returnStdout: true, script: 'cd ws && git rev-parse --short HEAD').trim()
           if (!env.IMAGE_TAG) { env.IMAGE_TAG = "build-${env.BUILD_NUMBER}" }
@@ -92,29 +91,18 @@ echo "[vars] IMAGE_TAG=$IMAGE_TAG"
       }
     }
 
-    stage('Build & Push Images (BE/FE)') {
+    stage('Build & Push Images') {
   steps {
-    withCredentials([ usernamePassword(credentialsId: 'GHCR_USER',
-                                       usernameVariable: 'GH_USER',
-                                       passwordVariable: 'GH_TOKEN') ]) {
-      dir('ws') {
-        sh """#!/usr/bin/env bash
-set -euo pipefail
-
-echo "[vars] using BACKEND_IMAGE=${BACKEND_IMAGE}"
-echo "[vars] using FRONTEND_IMAGE=${FRONTEND_IMAGE}"
-echo "[vars] using IMAGE_TAG=${IMAGE_TAG}"
-
-echo "$GH_TOKEN" | docker login ghcr.io -u "$GH_USER" --password-stdin
-
-echo "[build] Backend -> $BACKEND_IMAGE:$IMAGE_TAG"
-docker build -t "$BACKEND_IMAGE:$IMAGE_TAG" -f ci/Dockerfile.backend .
-docker push "$BACKEND_IMAGE:$IMAGE_TAG"
-
-echo "[build] Frontend -> $FRONTEND_IMAGE:$IMAGE_TAG"
-docker build -t "$FRONTEND_IMAGE:$IMAGE_TAG" -f ci/Dockerfile.frontend .
-docker push "$FRONTEND_IMAGE:$IMAGE_TAG"
-"""
+    dir('ws') {
+      script {
+        echo "Building ${env.BACKEND_IMAGE}:${env.IMAGE_TAG}"
+        sh """
+          echo "$GH_TOKEN" | docker login ghcr.io -u "$GH_USER" --password-stdin
+          docker build -t ${env.BACKEND_IMAGE}:${env.IMAGE_TAG} -f ci/Dockerfile.backend .
+          docker push ${env.BACKEND_IMAGE}:${env.IMAGE_TAG}
+          docker build -t ${env.FRONTEND_IMAGE}:${env.IMAGE_TAG} -f ci/Dockerfile.frontend .
+          docker push ${env.FRONTEND_IMAGE}:${env.IMAGE_TAG}
+        """
       }
     }
   }
