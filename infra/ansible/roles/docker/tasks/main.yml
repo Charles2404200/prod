@@ -1,52 +1,14 @@
 ---
-# roles/docker/tasks/main.yml
-
-# --- sensible defaults if not passed in -e ---
-- name: Set role defaults
-  set_fact:
-    docker_user: "{{ docker_user | default(ansible_user_id) }}"
-    docker_compose_version: "{{ docker_compose_version | default('v2.27.0') }}"
-    docker_cli_plugins_dir: >-
-      {{ docker_cli_plugins_dir
-         | default( (ansible_facts.os_family in ['RedHat','Rocky','AlmaLinux','Amazon'])
-                     | ternary('/usr/libexec/docker/cli-plugins','/usr/lib/docker/cli-plugins') ) }}
-
-# --- base packages (handle Amazon Linux 2023 curl-minimal conflict) ---
-- name: Ensure git & tar are present
+- name: Ensure base packages
   become: true
   package:
     name:
+      - curl
       - git
       - tar
     state: present
 
-- name: Amazon Linux 2023 | ensure curl-minimal present
-  become: true
-  package:
-    name: curl-minimal
-    state: present
-  when:
-    - ansible_facts.distribution == "Amazon"
-    - ansible_facts.distribution_version is search('2023')
-
-- name: Amazon Linux 2023 | ensure conflicting curl is absent
-  become: true
-  package:
-    name: curl
-    state: absent
-  when:
-    - ansible_facts.distribution == "Amazon"
-    - ansible_facts.distribution_version is search('2023')
-
-- name: Non-Amazon-2023 | ensure curl present
-  become: true
-  package:
-    name: curl
-    state: present
-  when: not (ansible_facts.distribution == "Amazon"
-             and (ansible_facts.distribution_version is search('2023')))
-
-# --- Docker engine (pkg first, convenience script fallback) ---
+# 1) Docker engine (pkg first, fallback to convenience script)
 - name: Install Docker engine via package if available
   become: true
   package:
@@ -58,11 +20,10 @@
 - name: Install Docker via convenience script (fallback)
   become: true
   shell: curl -fsSL https://get.docker.com | sh
-  args:
-    executable: /bin/bash
+  args: { executable: /bin/bash }
   when: docker_pkg is failed
 
-# --- daemon.json (log rotation, cgroup driver, faster pulls) ---
+# 2) Daemon config
 - name: Write /etc/docker/daemon.json
   become: true
   copy:
@@ -78,7 +39,7 @@
       }
   notify: Restart docker
 
-# --- enable/start & group membership ---
+# 3) Enable/Start Docker, grant user
 - name: Enable & start Docker
   become: true
   service:
@@ -93,7 +54,7 @@
     groups: docker
     append: true
 
-# --- Docker Compose v2 (pkg if possible; otherwise download plugin) ---
+# 4) Docker Compose v2 (pkg if possible; otherwise plugin binary)
 - name: Install docker compose plugin via package if present
   become: true
   package:
@@ -124,11 +85,7 @@
     dest: /usr/local/bin/docker-compose
     state: link
 
-# --- apply any pending handler notifications before verify ---
-- name: Apply pending handler notifications now
-  meta: flush_handlers
-
-# --- verify ---
+# 5) Verify
 - name: Show docker versions
   become: true
   shell: |
