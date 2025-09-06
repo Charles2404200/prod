@@ -2,33 +2,34 @@
 frontend_image: "ghcr.io/BennyBach1002/rmit-store-frontend"
 backend_image:  "ghcr.io/BennyBach1002/rmit-store-backend"
 db_image:       "mongo:7"
-image_tag: "latest"             # Jenkins will override with commit SHA
+image_tag: "latest"   # Jenkins will override with commit SHA
 
-# where Swarm publishes services on the host
+# where Swarm/Compose publishes services on the host
 frontend_published: 8080
 backend_published:  3000
-mongo_published:    27017       # publish only if you need external access
+mongo_published:    27017
 
 # app env
-mongo_local: true               # use in-box Mongo (toggle false to use Atlas)
-mongo_uri: "mongodb+srv://RMIT_Store:123RMIT@ac-mr6vgxa-shard-00-00.uvixzgs.mongodb.net/admin?authSource=admin&replicaSet=atlas-gbr5dj-shard-0&retryWrites=true&w=majority&appName=RMITStore"                   # set if mongo_local=false
+mongo_local: true
+mongo_uri: "mongodb+srv://RMIT_Store:123RMIT@ac-mr6vgxa-shard-00-00.uvixzgs.mongodb.net/admin?authSource=admin&replicaSet=atlas-gbr5dj-shard-0&retryWrites=true&w=majority&appName=RMITStore"
 jwt_secret: "my_secret_string"
 
 # deploy
 deploy_root: "/opt/rmit"
 stack_name: "rmit"
 
-# GHCR (set real values or vault them)
+# GHCR (these are overridden by Jenkins -e vars; safe to keep or remove)
 ghcr_user: "BennyBach1002"
 ghcr_token: "YOUR_GHCR_PAT"
 
-# NGINX (host LB)
-staging_domain: "35.153.184.85"             # keep "_" or set your domain later
+# NGINX / public host
+staging_domain: "35.153.184.85"
+frontend_domain: "35.153.184.85"   # <-- ADDED so the env template has it
 api_rate: "20r/s"
 api_burst: 40
 api_rate_zone_size: "20m"
 
-# docker role extras
-docker_compose_version: "v1"
-docker_cli_plugins_dir: "/usr/local/lib/docker/cli-plugins"
+# docker role extras (Amazon Linux 2023 friendly)
+docker_compose_version: "v2.27.0"          # <-- was "v1"
+docker_cli_plugins_dir: "/usr/libexec/docker/cli-plugins"  # <-- AL2023 path
 docker_user: "{{ ansible_user | default('ec2-user') }}"
