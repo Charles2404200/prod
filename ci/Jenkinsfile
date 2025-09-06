@@ -77,88 +77,203 @@ pipeline {
       }
     }
 
-stage('Deploy with Ansible (Swarm + NGINX)') {
+stage('Deploy (Single EC2, no Nginx/Swarm)') {
   environment {
-    // Controller you SSH into to run Ansible
-    CTRL_HOST     = '35.153.184.85'
-    CTRL_USER     = 'ec2-user'
-    REMOTE_WORK   = '/home/ec2-user/deploy'
-    REMOTE_KEY    = '/home/ec2-user/edge.pem'
+    // === CHANGE ME ===
+    TARGET_IP   = '35.153.184.85'   // your EC2 public IP (NO http://)
+    TARGET_USER = 'ec2-user'        // usually ec2-user on Amazon Linux
 
-    // Ansible targets (same box for lb+staging)
-    INVENTORY     = 'infra/ansible/inventory.ini'
-    PLAYBOOK      = 'infra/ansible/site.yml'
-    DEPLOY_LIMIT  = 'lb,staging'
+    // Images built earlier in the pipeline (or set defaults)
+    FRONTEND_IMAGE = 'ghcr.io/BennyBach1002/rmit-store-frontend'
+    BACKEND_IMAGE  = 'ghcr.io/BennyBach1002/rmit-store-backend'
+    IMAGE_TAG      = 'latest'       // or set to the git SHA you built
 
-    // <-- set your public host/IP once here
-    FRONTEND_DOMAIN = '35.153.184.85'
+    // App config (set for your app)
+    PUBLIC_URL = "http://${TARGET_IP}/"
+    API_BASE   = "http://${TARGET_IP}:3000"
+    MONGO_URI  = ''                 // put Atlas URI if needed, else leave blank
+    JWT_SECRET = 'change_me'        // set a strong value
   }
   steps {
     withCredentials([
       usernamePassword(credentialsId: 'GHCR_USER', usernameVariable: 'GH_USER', passwordVariable: 'GH_TOKEN'),
-      sshUserPrivateKey(credentialsId: 'ansible-ec2-key', keyFileVariable: 'CTRL_KEY')
+      sshUserPrivateKey(credentialsId: 'ansible-ec2-key', keyFileVariable: 'SSH_KEY') // key that logs to TARGET_IP
     ]) {
-      dir('ws') {
-        sh '''#!/usr/bin/env bash
-          set -euo pipefail
+      sh '''#!/usr/bin/env bash
+        set -euo pipefail
 
-          echo "[deploy] Package Ansible folder…"
-          test -d infra/ansible || { echo "infra/ansible not found"; exit 2; }
-          tar czf ansible.tgz infra/ansible
+        # ---- Ensure ansible on Jenkins agent ----
+        if ! command -v ansible-playbook >/dev/null 2>&1; then
+          if command -v apt-get >/dev/null 2>&1; then
+            sudo apt-get update && sudo apt-get install -y ansible
+          elif command -v yum >/dev/null 2>&1; then
+            sudo yum -y install ansible
+          else
+            echo "Ansible not found and no apt/yum available"; exit 1
+          fi
+        fi
 
-          echo "[preflight] Test SSH: ${CTRL_USER}@${CTRL_HOST}:22"
-          chmod 600 "${CTRL_KEY}"
-          ssh -o StrictHostKeyChecking=no -i "${CTRL_KEY}" "${CTRL_USER}@${CTRL_HOST}" "echo ok"
+        chmod 600 "${SSH_KEY}"
 
-          echo "[deploy] Push bundle + key to controller ${CTRL_HOST}…"
-          ssh -o StrictHostKeyChecking=no -i "${CTRL_KEY}" "${CTRL_USER}@${CTRL_HOST}" "mkdir -p '${REMOTE_WORK}'"
-          scp -o StrictHostKeyChecking=no -i "${CTRL_KEY}" ansible.tgz "${CTRL_USER}@${CTRL_HOST}:${REMOTE_WORK}/ansible.tgz"
-          # re-use the same key on the controller for local SSH (if your playbook uses it)
-          scp -o StrictHostKeyChecking=no -i "${CTRL_KEY}" "${CTRL_KEY}" "${CTRL_USER}@${CTRL_HOST}:${REMOTE_KEY}"
+        # ---- Create temp inventory & playbook in workspace ----
+        WORK="$(pwd)/.deploy_single"
+        mkdir -p "$WORK"
 
-          echo "[deploy] Run Ansible on controller…"
-          ssh -tt -o StrictHostKeyChecking=no -i "${CTRL_KEY}" "${CTRL_USER}@${CTRL_HOST}" bash -lc "'
-            set -euo pipefail
+        cat > "$WORK/inventory.ini" <<EOF
+[edge]
+edge-1 ansible_host=${TARGET_IP} ansible_user=${TARGET_USER} ansible_ssh_private_key_file=${SSH_KEY}
+EOF
 
-            # Ensure Ansible
-            if ! command -v ansible-playbook >/dev/null 2>&1; then
-              if command -v yum >/dev/null 2>&1; then
-                sudo yum -y install ansible python3 || true
-              elif command -v apt-get >/dev/null 2>&1; then
-                sudo apt-get update && sudo apt-get install -y ansible python3 || true
-              fi
-            fi
+        # Minimal single-host playbook (no nginx, no swarm)
+        cat > "$WORK/site.yml" <<'YAML'
+- hosts: edge
+  become: true
+  vars:
+    deploy_root: /opt/rmit
+    frontend_image: "{{ lookup('env','FRONTEND_IMAGE') }}"
+    backend_image:  "{{ lookup('env','BACKEND_IMAGE')  }}"
+    image_tag:      "{{ lookup('env','IMAGE_TAG')      }}"
+    public_url:     "{{ lookup('env','PUBLIC_URL')     }}"
+    api_base:       "{{ lookup('env','API_BASE')       }}"
+    mongo_uri:      "{{ lookup('env','MONGO_URI')      }}"
+    jwt_secret:     "{{ lookup('env','JWT_SECRET')     }}"
 
-            cd ${REMOTE_WORK}
-            rm -rf infra || true
-            tar xzf ansible.tgz
+  tasks:
+    - name: Install Docker (Amazon Linux 2023)
+      package:
+        name: docker
+        state: present
+      register: docker_pkg
+      failed_when: false
 
-            # Optional collections
-            if [ -f infra/ansible/requirements.yml ]; then
-              ansible-galaxy collection install -r infra/ansible/requirements.yml -p ./collections || true
-              export ANSIBLE_COLLECTIONS_PATHS=\"./collections:$HOME/.ansible/collections:/usr/share/ansible/collections\"
-            fi
+    - name: Start & enable docker
+      service:
+        name: docker
+        state: started
+        enabled: true
 
-            export ANSIBLE_STDOUT_CALLBACK=yaml
-            export ANSIBLE_HOST_KEY_CHECKING=False
+    - name: Add user to docker group
+      user:
+        name: "{{ ansible_user | default('ec2-user') }}"
+        groups: docker
+        append: true
 
-            # Run playbook with the frontend_domain & staging_domain injected
-            ansible-playbook -i ${INVENTORY} ${PLAYBOOK} \\
-              -l ${DEPLOY_LIMIT} \\
-              -e env=staging \\
-              -e backend_image=${BACKEND_IMAGE} \\
-              -e frontend_image=${FRONTEND_IMAGE} \\
-              -e image_tag=${IMAGE_TAG} \\
-              -e ghcr_user=${GH_USER} \\
-              -e ghcr_token=${GH_TOKEN} \\
-              -e docker_user=${CTRL_USER} \\
-              -e docker_cli_plugins_dir=/usr/libexec/docker/cli-plugins \\
-              -e docker_compose_version=v2.27.0 \\
-              -e frontend_domain=${FRONTEND_DOMAIN} \\
-              -e staging_domain=${FRONTEND_DOMAIN}
-          '"
-        '''
-      }
+    - name: Ensure compose plugin dir
+      file:
+        path: /usr/libexec/docker/cli-plugins
+        state: directory
+        mode: '0755'
+
+    - name: Install docker compose v2 if missing
+      shell: |
+        set -e
+        if ! docker compose version >/dev/null 2>&1; then
+          curl -fsSL -o /usr/libexec/docker/cli-plugins/docker-compose \
+            https://github.com/docker/compose/releases/download/v2.27.0/docker-compose-linux-x86_64
+          chmod +x /usr/libexec/docker/cli-plugins/docker-compose
+        fi
+
+    - name: Ensure deploy dir
+      file:
+        path: "{{ deploy_root }}"
+        state: directory
+        owner: "{{ ansible_user | default('ec2-user') }}"
+        group: "{{ ansible_user | default('ec2-user') }}"
+        mode: '0755'
+
+    - name: Write .env for compose
+      copy:
+        dest: "{{ deploy_root }}/.env"
+        mode: '0644'
+        content: |
+          FRONTEND_IMAGE={{ frontend_image }}
+          BACKEND_IMAGE={{ backend_image }}
+          IMAGE_TAG={{ image_tag }}
+          PUBLIC_URL={{ public_url }}
+          API_BASE={{ api_base }}
+          MONGO_URI={{ mongo_uri }}
+          JWT_SECRET={{ jwt_secret }}
+
+    - name: Write docker-compose.yml
+      copy:
+        dest: "{{ deploy_root }}/docker-compose.yml"
+        mode: '0644'
+        content: |
+          version: "3.8"
+          services:
+            backend:
+              image: ${BACKEND_IMAGE}:${IMAGE_TAG}
+              env_file: .env
+              environment:
+                MONGO_URI: ${MONGO_URI}
+                JWT_SECRET: ${JWT_SECRET}
+                PORT: 3000
+                FRONTEND_URL: ${PUBLIC_URL}
+              ports:
+                - "3000:3000"
+              restart: unless-stopped
+
+            frontend:
+              image: ${FRONTEND_IMAGE}:${IMAGE_TAG}
+              env_file: .env
+              environment:
+                # If your frontend reads VITE_* only at build time, adjust image or use proxy
+                VITE_API_BASE: ${API_BASE}
+              ports:
+                - "80:80"
+              depends_on:
+                - backend
+              restart: unless-stopped
+
+    - name: GHCR login (if creds provided)
+      shell: |
+        set -e
+        if [ -n "${GH_USER:-}" ] && [ -n "${GH_TOKEN:-}" ]; then
+          echo "${GH_TOKEN}" | docker login ghcr.io -u "${GH_USER}" --password-stdin
+        fi
+      environment:
+        GH_USER: "{{ lookup('env','GH_USER') }}"
+        GH_TOKEN: "{{ lookup('env','GH_TOKEN') }}"
+
+    - name: Pull images
+      shell: |
+        set -e
+        cd "{{ deploy_root }}"
+        docker compose pull
+
+    - name: Up containers
+      shell: |
+        set -e
+        cd "{{ deploy_root }}"
+        docker compose up -d
+YAML
+
+        # ---- Run the playbook against the EC2 directly ----
+        export GH_USER="${GH_USER}"
+        export GH_TOKEN="${GH_TOKEN}"
+        export FRONTEND_IMAGE="${FRONTEND_IMAGE}"
+        export BACKEND_IMAGE="${BACKEND_IMAGE}"
+        export IMAGE_TAG="${IMAGE_TAG}"
+        export PUBLIC_URL="${PUBLIC_URL}"
+        export API_BASE="${API_BASE}"
+        export MONGO_URI="${MONGO_URI}"
+        export JWT_SECRET="${JWT_SECRET}"
+
+        ansible-playbook -i "$WORK/inventory.ini" "$WORK/site.yml"
+
+        echo "[verify] Hitting ${PUBLIC_URL} …"
+        for i in {1..30}; do
+          code=$(curl -sS -o /dev/null -w "%{http_code}" "${PUBLIC_URL}" || true)
+          if [[ "$code" =~ ^2|3 ]]; then
+            echo "OK: HTTP $code"
+            exit 0
+          fi
+          echo "Waiting (attempt $i): got $code"
+          sleep 2
+        done
+        echo "ERROR: site did not become healthy at ${PUBLIC_URL}"
+        exit 1
+      '''
     }
   }
 }
