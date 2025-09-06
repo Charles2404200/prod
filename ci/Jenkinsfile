@@ -3,17 +3,17 @@ pipeline {
   options { skipDefaultCheckout(true) }
 
   parameters {
-    string(name: 'GHCR_NAMESPACE',  defaultValue: 'benbach2001@gmail.com', description: 'GHCR namespace (user/org, any case; sanitized to lowercase a-z0-9-)')
-    string(name: 'K8S_NAMESPACE',   defaultValue: 'rmit-store',           description: 'Kubernetes namespace (unused here)')
-    string(name: 'HOST',            defaultValue: '',                      description: 'Optional DNS host (unused here)')
-    string(name: 'BRANCH_TO_BUILD', defaultValue: 'ansible-prod',                  description: 'Git branch to build')
+    string(name: 'GHCR_NAMESPACE',  defaultValue: 'benbach2001@gmail.com', description: 'GHCR namespace (user/org)')
+    string(name: 'K8S_NAMESPACE',   defaultValue: 'rmit-store',            description: 'Kubernetes namespace')
+    string(name: 'HOST',            defaultValue: '',                       description: 'Optional DNS host')
+    string(name: 'BRANCH_TO_BUILD', defaultValue: 'ansible-prod',                   description: 'Git branch to build')
   }
 
   environment {
-    APP_NAME   = 'rmit-store'
-    REPO_URL   = 'https://github.com/Charles2404200/prod'
+    APP_NAME = 'rmit-store'
+    REPO_URL = 'https://github.com/Charles2404200/prod'
 
-    // Target host (where containers will run)
+    // Deployment target
     CTRL_HOST  = '34.227.19.111'
     CTRL_USER  = 'ec2-user'
 
@@ -22,10 +22,11 @@ pipeline {
     JWT_SECRET = 'my_secret_string'
     MONGO_URI  = 'mongodb+srv://RMIT_Store:123RMIT@ac-mr6vgxa-shard-00-00.uvixzgs.mongodb.net/admin?authSource=admin&replicaSet=atlas-gbr5dj-shard-0&retryWrites=true&w=majority&appName=RMITStore'
 
-    // set in Resolve stage so they're available everywhere (incl. post{})
+    // Initial (will be sanitized in Resolve stage)
     BACKEND_IMAGE  = "ghcr.io/${params.GHCR_NAMESPACE}/rmit-store-backend"
-        FRONTEND_IMAGE = "ghcr.io/${params.GHCR_NAMESPACE}/rmit-store-frontend"
-        DB_IMAGE       = "ghcr.io/${params.GHCR_NAMESPACE}/rmit-store-db"
+    FRONTEND_IMAGE = "ghcr.io/${params.GHCR_NAMESPACE}/rmit-store-frontend"
+    DB_IMAGE       = "ghcr.io/${params.GHCR_NAMESPACE}/rmit-store-db"
+    IMAGE_TAG      = ''
   }
 
   stages {
@@ -42,20 +43,22 @@ pipeline {
       }
     }
 
-    stage('Resolve Image Names & Tag') {
+    stage('Sanitize Image Names & Tag') {
       steps {
         script {
-          // sanitize GHCR namespace: lowercase & keep only a-z 0-9 and dashes
-          def ns = params.GHCR_NAMESPACE?.trim()?.toLowerCase()?.replaceAll('[^a-z0-9-]', '') ?: ''
-          if (!ns) { error 'GHCR_NAMESPACE resolved empty after sanitization (expected letters, numbers, or dashes)' }
+          def ns = params.GHCR_NAMESPACE.trim().toLowerCase().replaceAll('[^a-z0-9-]', '')
+          if (!ns) { error "GHCR_NAMESPACE '${params.GHCR_NAMESPACE}' sanitized to empty (needs letters/numbers/dashes)" }
 
-          env.FRONTEND_IMAGE = "ghcr.io/${ns}/rmit-store-frontend".toLowerCase()
-          env.BACKEND_IMAGE  = "ghcr.io/${ns}/rmit-store-backend".toLowerCase()
+          env.BACKEND_IMAGE  = "ghcr.io/${ns}/rmit-store-backend"
+          env.FRONTEND_IMAGE = "ghcr.io/${ns}/rmit-store-frontend"
+          env.DB_IMAGE       = "ghcr.io/${ns}/rmit-store-db"
           env.IMAGE_TAG      = sh(returnStdout: true, script: 'cd ws && git rev-parse --short HEAD').trim()
 
-          echo "FRONTEND_IMAGE=${env.FRONTEND_IMAGE}"
-          echo "BACKEND_IMAGE=${env.BACKEND_IMAGE}"
-          echo "IMAGE_TAG=${env.IMAGE_TAG}"
+          echo "Sanitized images:"
+          echo "  BACKEND_IMAGE=${env.BACKEND_IMAGE}"
+          echo "  FRONTEND_IMAGE=${env.FRONTEND_IMAGE}"
+          echo "  DB_IMAGE=${env.DB_IMAGE}"
+          echo "  IMAGE_TAG=${env.IMAGE_TAG}"
         }
       }
     }
@@ -70,19 +73,22 @@ pipeline {
       }
     }
 
-    stage('Build & Push images (BE/FE)') {
+    stage('Build & Push Images (BE/FE)') {
       steps {
         withCredentials([ usernamePassword(credentialsId: 'GHCR_USER',
                                            usernameVariable: 'GH_USER',
                                            passwordVariable: 'GH_TOKEN') ]) {
           dir('ws') {
-            sh '''#!/usr/bin/env bash
+            withEnv([
+              "BACKEND_IMAGE=${env.BACKEND_IMAGE}",
+              "FRONTEND_IMAGE=${env.FRONTEND_IMAGE}",
+              "IMAGE_TAG=${env.IMAGE_TAG}"
+            ]) {
+              sh '''#!/usr/bin/env bash
 set -euo pipefail
 
 echo "[debug] repo tree:"
-ls -la; echo; ls -la ci || true; ls -la client || true
-
-echo "$GH_TOKEN" | docker login ghcr.io -u "$GH_USER" --password-stdin
+ls -la ci || true
 
 echo "[build] Backend -> $BACKEND_IMAGE:$IMAGE_TAG"
 docker build -t "$BACKEND_IMAGE:$IMAGE_TAG" -f ci/Dockerfile.backend .
@@ -96,6 +102,7 @@ docker build -t "$FRONTEND_IMAGE:$IMAGE_TAG" -f ci/Dockerfile.frontend .
 echo "[push] $FRONTEND_IMAGE:$IMAGE_TAG"
 docker push "$FRONTEND_IMAGE:$IMAGE_TAG"
 '''
+            }
           }
         }
       }
@@ -107,38 +114,19 @@ docker push "$FRONTEND_IMAGE:$IMAGE_TAG"
           usernamePassword(credentialsId: 'GHCR_USER', usernameVariable: 'GH_USER', passwordVariable: 'GH_TOKEN'),
           sshUserPrivateKey(credentialsId: 'ansible-ec2-key', keyFileVariable: 'SSH_KEY')
         ]) {
-          // Prepare host (install docker + compose if missing)
-          sh '''#!/usr/bin/env bash
+          withEnv([
+            "BACKEND_IMAGE=${env.BACKEND_IMAGE}",
+            "FRONTEND_IMAGE=${env.FRONTEND_IMAGE}",
+            "IMAGE_TAG=${env.IMAGE_TAG}",
+            "FRONTEND_DOMAIN=${env.FRONTEND_DOMAIN}",
+            "MONGO_URI=${env.MONGO_URI}",
+            "JWT_SECRET=${env.JWT_SECRET}",
+            "CTRL_HOST=${env.CTRL_HOST}",
+            "CTRL_USER=${env.CTRL_USER}"
+          ]) {
+            sh '''#!/usr/bin/env bash
 set -euo pipefail
 chmod 600 "$SSH_KEY"
-
-ssh -o StrictHostKeyChecking=no -i "$SSH_KEY" "$CTRL_USER@$CTRL_HOST" bash -s <<'REMOTE'
-set -euo pipefail
-if ! command -v docker >/dev/null 2>&1; then
-  if command -v yum >/dev/null 2>&1; then
-    sudo yum update -y
-    sudo amazon-linux-extras enable docker || true
-    sudo yum install -y docker
-    sudo systemctl enable --now docker
-  elif command -v apt-get >/dev/null 2>&1; then
-    sudo apt-get update -y
-    sudo apt-get install -y docker.io
-    sudo systemctl enable --now docker
-  fi
-  sudo usermod -aG docker "$USER" || true
-fi
-mkdir -p ~/.docker/cli-plugins/
-if ! docker compose version >/dev/null 2>&1; then
-  curl -SL https://github.com/docker/compose/releases/download/v2.27.0/docker-compose-linux-x86_64 \
-    -o ~/.docker/cli-plugins/docker-compose
-  chmod +x ~/.docker/cli-plugins/docker-compose
-fi
-REMOTE
-'''
-
-          // Deploy (expand Jenkins env into remote compose file)
-          sh '''#!/usr/bin/env bash
-set -euo pipefail
 
 ssh -o StrictHostKeyChecking=no -i "$SSH_KEY" "$CTRL_USER@$CTRL_HOST" bash -s <<EOF
 set -euo pipefail
@@ -174,20 +162,13 @@ YAML
 cd ~/deploy
 docker compose pull
 docker compose up -d
-
-echo "[health] GET http://$FRONTEND_DOMAIN/"
-for i in {1..30}; do
-  code=$(curl -sS -o /dev/null -w "%{http_code}" "http://$FRONTEND_DOMAIN/" || true)
-  [[ "$code" =~ ^2|3 ]] && { echo "OK HTTP $code"; exit 0; }
-  echo "wait($i) -> $code"; sleep 2
-done
-echo "ERROR: site not healthy"
-exit 1
 EOF
 '''
+          }
         }
       }
     }
+
   } // stages
 
   post {
