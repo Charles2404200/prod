@@ -7,7 +7,7 @@ services:
       - "${BACKEND_GREEN_PORT:-3002}:3000"
     restart: always
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://http://54.196.128.5/:${BACKEND_GREEN_PORT:-3002}/api/health"]
+      test: ["CMD", "wget", "-qO-", "http://http://13.220.225.198/:${BACKEND_GREEN_PORT:-3002}/api/health"]
       interval: 10s
       timeout: 3s
       retries: 10
