@@ -29,7 +29,7 @@ pipeline {
     // App runtime config
     FRONTEND_DOMAIN = '34.227.19.111'         // where UI should be reachable
     JWT_SECRET = 'my_secret_string'
-    MONGO_URI  = 'mongodb://localhost:27017/rmit'
+    MONGO_URI  = 'mongodb+srv://RMIT_Store:123RMIT@ac-mr6vgxa-shard-00-00.uvixzgs.mongodb.net/admin?authSource=admin&replicaSet=atlas-gbr5dj-shard-0&retryWrites=true&w=majority&appName=RMITStore'
 
     NGINX_IMG = 'nginx:1.27-alpine'
   }
@@ -73,118 +73,48 @@ pipeline {
       }
     }
 
-    stage('Build & Push Images') {
-      steps {
-        withCredentials([ usernamePassword(credentialsId: 'GHCR_USER',
-                                           usernameVariable: 'GH_USER',
-                                           passwordVariable: 'GH_TOKEN') ]) {
-          dir('ws') {
-            sh '''#!/usr/bin/env bash
-              set -euo pipefail
-              echo "[build] Backend -> $BE_IMG:$IMAGE_TAG"
-              docker build -t "$BE_IMG:$IMAGE_TAG" server
+stage('Build & Push Images') {
+  steps {
+    withCredentials([ usernamePassword(credentialsId: 'GHCR_USER',
+                                       usernameVariable: 'GH_USER',
+                                       passwordVariable: 'GH_TOKEN') ]) {
+      dir('ws') {
+        sh '''#!/usr/bin/env bash
+          set -euo pipefail
 
-              echo "[build] Frontend -> $FE_IMG:$IMAGE_TAG"
-              docker build -t "$FE_IMG:$IMAGE_TAG" client
+          echo "[debug] show dockerfiles and key dirs"
+          ls -la | sed -n '1,120p'
+          ls -la client | sed -n '1,120p' || true
 
-              echo "[push] $BE_IMG:$IMAGE_TAG"
-              docker push "$BE_IMG:$IMAGE_TAG"
+          # ---- Backend ----
+          # Context: repo root (package.json for backend is here)
+          # Dockerfile: Dockerfile.backend
+          echo "[build] Backend -> $BE_IMG:$IMAGE_TAG"
+          docker build \
+            -f Dockerfile.backend \
+            -t "$BE_IMG:$IMAGE_TAG" \
+            .
 
-              echo "[push] $FE_IMG:$IMAGE_TAG"
-              docker push "$FE_IMG:$IMAGE_TAG"
-            '''
-          }
-        }
+          # ---- Frontend ----
+          # Context: client/ (frontend package.json lives here)
+          # Dockerfile: Dockerfile.frontend
+          echo "[build] Frontend -> $FE_IMG:$IMAGE_TAG"
+          docker build \
+            -f Dockerfile.frontend \
+            -t "$FE_IMG:$IMAGE_TAG" \
+            client
+
+          echo "[push] $BE_IMG:$IMAGE_TAG"
+          docker push "$BE_IMG:$IMAGE_TAG"
+
+          echo "[push] $FE_IMG:$IMAGE_TAG"
+          docker push "$FE_IMG:$IMAGE_TAG"
+        '''
       }
     }
+  }
+}
 
-    stage('Deploy (Ansible on controller EC2)') {
-      steps {
-        withCredentials([
-          usernamePassword(credentialsId: 'GHCR_USER', usernameVariable: 'GH_USER', passwordVariable: 'GH_TOKEN'),
-          sshUserPrivateKey(credentialsId: 'ansible-ec2-key', keyFileVariable: 'CTRL_KEY'),
-          // If the controller needs a different key to SSH to the edge host, add this credential and inventory var:
-          // sshUserPrivateKey(credentialsId: 'edge-ec2-key', keyFileVariable: 'EDGE_KEY')
-        ]) {
-          dir('ws') {
-            sh '''#!/usr/bin/env bash
-              set -euo pipefail
-
-              echo "[preflight] SSH ${CTRL_USER}@${CTRL_HOST}"
-              chmod 600 "${CTRL_KEY}"
-              ssh -o StrictHostKeyChecking=no -i "${CTRL_KEY}" "${CTRL_USER}@${CTRL_HOST}" "echo ok"
-
-              echo "[bundle] infra/ansible -> ansible.tgz"
-              test -f "${INVENTORY_PATH}" || { echo "Missing ${INVENTORY_PATH}"; exit 2; }
-              test -f "${PLAYBOOK_PATH}"  || { echo "Missing ${PLAYBOOK_PATH}";  exit 2; }
-              tar czf ansible.tgz infra/ansible
-
-              echo "[upload] -> ${CTRL_HOST}:${REMOTE_WORK}"
-              ssh -o StrictHostKeyChecking=no -i "${CTRL_KEY}" "${CTRL_USER}@${CTRL_HOST}" "mkdir -p '${REMOTE_WORK}'"
-              scp -o StrictHostKeyChecking=no -i "${CTRL_KEY}" ansible.tgz "${CTRL_USER}@${CTRL_HOST}:${REMOTE_WORK}/ansible.tgz"
-
-              # If controller needs a special key to reach the edge host (34.227.19.111), upload it:
-              if [ -n "${EDGE_KEY:-}" ] && [ -f "${EDGE_KEY}" ]; then
-                echo "[upload] edge key to controller"
-                ssh -o StrictHostKeyChecking=no -i "${CTRL_KEY}" "${CTRL_USER}@${CTRL_HOST}" "mkdir -p ~/.ssh && chmod 700 ~/.ssh"
-                scp -o StrictHostKeyChecking=no -i "${CTRL_KEY}" "${EDGE_KEY}" "${CTRL_USER}@${CTRL_HOST}:~/.ssh/edge_key"
-                ssh -o StrictHostKeyChecking=no -i "${CTRL_KEY}" "${CTRL_USER}@${CTRL_HOST}" "chmod 600 ~/.ssh/edge_key"
-              fi
-
-              echo "[deploy] Run on controller with repo inventory"
-              ssh -tt -o StrictHostKeyChecking=no -i "${CTRL_KEY}" "${CTRL_USER}@${CTRL_HOST}" bash -lc '
-                set -euo pipefail
-
-                # Ensure Ansible
-                if ! command -v ansible-playbook >/dev/null 2>&1; then
-                  if command -v yum >/dev/null 2%; then sudo yum -y install ansible python3 || true
-                  elif command -v apt-get >/dev/null 2%; then sudo apt-get update && sudo apt-get install -y ansible python3 || true
-                  fi
-                fi
-
-                cd ${REMOTE_WORK}
-                rm -rf infra || true
-                tar xzf ansible.tgz
-
-                # ansible.cfg (optional) to relax host key checking
-                cat > ansible.cfg <<CFG
-[defaults]
-host_key_checking = False
-retry_files_enabled = False
-deprecation_warnings = False
-CFG
-                export ANSIBLE_CONFIG="${PWD}/ansible.cfg"
-                export ANSIBLE_STDOUT_CALLBACK=yaml
-
-                FE_IMG_L=$(echo "${FE_IMG}" | tr "[:upper:]" "[:lower:]")
-                BE_IMG_L=$(echo "${BE_IMG}" | tr "[:upper:]" "[:lower:]")
-
-                EXTRA_VARS="-e frontend_image=\\"${FE_IMG_L}\\" -e backend_image=\\"${BE_IMG_L}\\" -e nginx_image=\\"${NGINX_IMG}\\" -e image_tag=\\"${IMAGE_TAG}\\" -e frontend_domain=\\"${FRONTEND_DOMAIN}\\" -e jwt_secret=\\"${JWT_SECRET}\\" -e mongo_uri=\\"${MONGO_URI}\\" -e ghcr_user=\\"${GH_USER}\\" -e ghcr_token=\\"${GH_TOKEN}\\""
-
-                INV="infra/ansible/inventory.ini"
-
-                PK_OPT=""
-                if [ -f "~/.ssh/edge_key" ]; then
-                  PK_OPT="--private-key ~/.ssh/edge_key"
-                fi
-
-                echo "[ansible] inventory=$INV limit=${DEPLOY_LIMIT}"
-                ansible-playbook -i "$INV" ${PK_OPT} infra/ansible/site.yml ${EXTRA_VARS} --limit "${DEPLOY_LIMIT}"
-              '
-
-              echo "[verify] http://${FRONTEND_DOMAIN}/"
-              for i in {1..30}; do
-                code=$(curl -sS -o /dev/null -w "%{http_code}" "http://${FRONTEND_DOMAIN}/" || true)
-                [[ "$code" =~ ^2|3 ]] && { echo "OK HTTP $code"; exit 0; }
-                echo "wait($i) -> $code"; sleep 2
-              done
-              echo "ERROR: site not healthy"
-              exit 1
-            '''
-          }
-        }
-      }
-    }
 
     stage('Deploy (Docker Swarm)') {
       when { expression { return params.DOCKER_SWARM } }
