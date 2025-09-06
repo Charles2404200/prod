@@ -79,19 +79,19 @@ pipeline {
 
 stage('Deploy with Ansible (Swarm + NGINX)') {
   environment {
-    CTRL_HOST   = '54.87.144.232'         // controller public IP
+    CTRL_HOST   = 'http://174.129.109.210/'         // controller public IP
     CTRL_USER   = 'ec2-user'
     REMOTE_WORK = '/home/ec2-user/deploy' // workspace on controller
     REMOTE_KEY  = '/home/ec2-user/edge.pem' // key Ansible uses to SSH to 54.87
     INVENTORY   = 'dyn.inventory'         // generated inventory on controller
     PLAYBOOK    = 'infra/ansible/site.yml'
     DEPLOY_LIMIT= 'lb,staging'
-    ADVERTISE_IP= '54.87.144.232'         // Swarm advertise-addr
+    ADVERTISE_IP= 'http://174.129.109.210/'         // Swarm advertise-addr
   }
   steps {
     withCredentials([
       usernamePassword(credentialsId: 'GHCR_USER', usernameVariable: 'GH_USER', passwordVariable: 'GH_TOKEN'),
-      sshUserPrivateKey(credentialsId: 'ansible-ec2-key', keyFileVariable: 'CTRL_KEY')   // Jenkins -> controller
+      sshUserPrivateKey(credentialsId: 'jenkins-ec2-key', keyFileVariable: 'CTRL_KEY')   // Jenkins -> controller
     ]) {
       dir('ws') {
         sh '''#!/usr/bin/env bash
