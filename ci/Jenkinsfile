@@ -44,24 +44,30 @@ pipeline {
     }
 
     stage('Sanitize Image Names & Tag') {
-      steps {
-        script {
-          def ns = params.GHCR_NAMESPACE.trim().toLowerCase().replaceAll('[^a-z0-9-]', '')
-          if (!ns) { error "GHCR_NAMESPACE '${params.GHCR_NAMESPACE}' sanitized to empty (needs letters/numbers/dashes)" }
+  steps {
+    script {
+      def ns = params.GHCR_NAMESPACE.trim().toLowerCase().replaceAll('[^a-z0-9-]', '')
+      if (!ns) { error "GHCR_NAMESPACE '${params.GHCR_NAMESPACE}' sanitized to empty! Must contain letters/numbers." }
 
-          env.BACKEND_IMAGE  = "ghcr.io/${ns}/rmit-store-backend"
-          env.FRONTEND_IMAGE = "ghcr.io/${ns}/rmit-store-frontend"
-          env.DB_IMAGE       = "ghcr.io/${ns}/rmit-store-db"
-          env.IMAGE_TAG      = sh(returnStdout: true, script: 'cd ws && git rev-parse --short HEAD').trim()
+      env.BACKEND_IMAGE  = "ghcr.io/${ns}/rmit-store-backend"
+      env.FRONTEND_IMAGE = "ghcr.io/${ns}/rmit-store-frontend"
+      env.DB_IMAGE       = "ghcr.io/${ns}/rmit-store-db"
 
-          echo "Sanitized images:"
-          echo "  BACKEND_IMAGE=${env.BACKEND_IMAGE}"
-          echo "  FRONTEND_IMAGE=${env.FRONTEND_IMAGE}"
-          echo "  DB_IMAGE=${env.DB_IMAGE}"
-          echo "  IMAGE_TAG=${env.IMAGE_TAG}"
-        }
-      }
+      env.IMAGE_TAG = sh(
+        returnStdout: true,
+        script: 'cd ws && git rev-parse --short HEAD'
+      ).trim()
+      if (!env.IMAGE_TAG) { env.IMAGE_TAG = "build-${env.BUILD_NUMBER}" }
+
+      echo "Sanitized images:"
+      echo "  BACKEND_IMAGE=${env.BACKEND_IMAGE}"
+      echo "  FRONTEND_IMAGE=${env.FRONTEND_IMAGE}"
+      echo "  DB_IMAGE=${env.DB_IMAGE}"
+      echo "  IMAGE_TAG=${env.IMAGE_TAG}"
     }
+  }
+}
+
 
     stage('Login to GHCR') {
       steps {
