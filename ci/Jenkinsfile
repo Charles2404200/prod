@@ -6,7 +6,7 @@ pipeline {
     string(name: 'GHCR_NAMESPACE',  defaultValue: 'benbach2001@gmail.com', description: 'GHCR namespace (user/org, any case; sanitized to lowercase a-z0-9-)')
     string(name: 'K8S_NAMESPACE',   defaultValue: 'rmit-store',           description: 'Kubernetes namespace (unused here)')
     string(name: 'HOST',            defaultValue: '',                      description: 'Optional DNS host (unused here)')
-    string(name: 'BRANCH_TO_BUILD', defaultValue: 'main',                  description: 'Git branch to build')
+    string(name: 'BRANCH_TO_BUILD', defaultValue: 'ansible-prod',                  description: 'Git branch to build')
   }
 
   environment {
@@ -23,9 +23,9 @@ pipeline {
     MONGO_URI  = 'mongodb+srv://RMIT_Store:123RMIT@ac-mr6vgxa-shard-00-00.uvixzgs.mongodb.net/admin?authSource=admin&replicaSet=atlas-gbr5dj-shard-0&retryWrites=true&w=majority&appName=RMITStore'
 
     // set in Resolve stage so they're available everywhere (incl. post{})
-    IMAGE_TAG = ''
-    FRONTEND_IMAGE = ''
-    BACKEND_IMAGE  = ''
+    BACKEND_IMAGE  = "ghcr.io/${params.GHCR_NAMESPACE}/rmit-store-backend"
+        FRONTEND_IMAGE = "ghcr.io/${params.GHCR_NAMESPACE}/rmit-store-frontend"
+        DB_IMAGE       = "ghcr.io/${params.GHCR_NAMESPACE}/rmit-store-db"
   }
 
   stages {
