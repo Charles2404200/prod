@@ -80,7 +80,7 @@ pipeline {
 stage('Deploy with Ansible (Swarm + NGINX)') {
   environment {
     // Controller == where Ansible runs and where we deploy
-    CTRL_HOST    = '54.87.144.232'      // <-- IP only (no http://, no trailing /)
+    CTRL_HOST    = '13.220.225.198'      // <-- IP only (no http://, no trailing /)
     CTRL_USER    = 'ec2-user'
 
     // Paths on controller
@@ -93,12 +93,12 @@ stage('Deploy with Ansible (Swarm + NGINX)') {
     DEPLOY_LIMIT = 'lb,staging'
 
     // Swarm advertise address (public IP)
-    ADVERTISE_IP = '54.87.144.232'      // <-- IP only
+    ADVERTISE_IP = '13.220.225.198'      // <-- IP only
   }
   steps {
     withCredentials([
       usernamePassword(credentialsId: 'GHCR_USER', usernameVariable: 'GH_USER', passwordVariable: 'GH_TOKEN'),
-      // Key Jenkins uses to SSH into the controller (54.87.144.232)
+      // Key Jenkins uses to SSH into the controller (13.220.225.198)
       sshUserPrivateKey(credentialsId: 'ansible-ec2-key', keyFileVariable: 'CTRL_KEY')
     ]) {
       dir('ws') {
