@@ -1,0 +1,7 @@
+---
+# Runs whenever tasks notify: "Restart docker"
+- name: Restart docker
+  become: true
+  service:
+    name: docker
+    state: restarted
