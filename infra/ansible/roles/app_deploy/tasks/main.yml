@@ -1,7 +1,7 @@
 ---
-# Adjust this if you actually want /backend instead of /server
+# Define where the backend lives on disk (you said you have "server", not "backend")
 - name: Set common paths
-  vars:
+  set_fact:
     backend_dir: "{{ deploy_root }}/server"
 
 - name: Ensure deploy dirs
@@ -59,7 +59,7 @@
 
 - name: Wait for backend health
   uri:
-    url: "http://{{ staging_domain | default(frontend_domain) }}:{{ _backend_port }}{{ backend_health_path }}"
+    url: "http://{{ (staging_domain | default(frontend_domain)) }}:{{ _backend_port }}{{ backend_health_path }}"
     status_code: 200
   register: health
   retries: 30
