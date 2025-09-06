@@ -5,6 +5,7 @@ services:
   backend:
     #context:
     #dockerfile:
+    #this one to pull from ghrc
     image: ghcr.io/benbach2001/rmit-store-backend:latest
     ports:
       - "5000:5000"
@@ -23,6 +24,7 @@ services:
   frontend:
     #context:
     #dockerfile:
+    #this one to pull from ghrc
     image: ghcr.io/benbach2001/rmit-store-frontend:latest
     ports:
       - "3000:80"

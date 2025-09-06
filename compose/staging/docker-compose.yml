@@ -22,9 +22,11 @@ version: "3.9"
 services:
   backend:
     build:
+      #this one to build locally
       # context: .
       # context: ../../  # This goes up two directories to the project root
       # dockerfile: ci/Dockerfile.backend
+    #this one to pull from ghrc
     image: ghcr.io/benbach2001/rmit-store-backend:latest
     ports:
       - "5000:5000"
@@ -40,9 +42,11 @@ services:
 
   frontend:
     build:
+      #this one to build locally
       # context: .
       # context: ../../  # This goes up two directories to the project root
       # dockerfile: ci/Dockerfile.frontend
+    #this one to pull from ghrc
     image: ghcr.io/benbach2001/rmit-store-frontend:latest
     ports:
       - "3000:80"
