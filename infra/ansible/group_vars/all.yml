@@ -23,7 +23,7 @@ ghcr_user: "BennyBach1002"
 ghcr_token: "YOUR_GHCR_PAT"
 
 # NGINX (host LB)
-staging_domain: "13.220.225.198"             # keep "_" or set your domain later
+staging_domain: "35.153.184.85"             # keep "_" or set your domain later
 api_rate: "20r/s"
 api_burst: 40
 api_rate_zone_size: "20m"

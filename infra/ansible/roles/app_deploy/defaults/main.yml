@@ -3,5 +3,5 @@ backend_health_path: /health
 backend_staging_port: 3000
 backend_blue_port: 3001
 backend_green_port: 3002
-staging_domain: "13.220.225.198"
+staging_domain: "35.153.184.85"
 color: blue

@@ -79,14 +79,14 @@ pipeline {
 
 stage('Deploy with Ansible (Swarm + NGINX)') {
   environment {
-    CTRL_HOST    = '13.220.225.198'          // controller public IP (no http://)
+    CTRL_HOST    = '35.153.184.85'          // controller public IP (no http://)
     CTRL_USER    = 'ec2-user'
     REMOTE_WORK  = '/home/ec2-user/deploy'
     REMOTE_KEY   = '/home/ec2-user/edge.pem'
     INVENTORY    = 'infra/ansible/inventory.ini'
     PLAYBOOK     = 'infra/ansible/site.yml'
     DEPLOY_LIMIT = 'lb,staging'
-    ADVERTISE_IP = '13.220.225.198'          // for Swarm + NGINX server_name
+    ADVERTISE_IP = '35.153.184.85'          // for Swarm + NGINX server_name
   }
   steps {
     withCredentials([
