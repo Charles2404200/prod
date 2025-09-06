@@ -76,7 +76,6 @@ pipeline {
 stage('Build & push images (BE/FE)') {
   steps {
     script {
-      // sanitize namespace once more (in case parameter is an email)
       def ns = params.GHCR_NAMESPACE.toLowerCase().replaceAll(/[^a-z0-9-]/, '')
       env.BACKEND_IMAGE  = "ghcr.io/${ns}/rmit-store-backend"
       env.FRONTEND_IMAGE = "ghcr.io/${ns}/rmit-store-frontend"
@@ -84,28 +83,32 @@ stage('Build & push images (BE/FE)') {
       withCredentials([usernamePassword(credentialsId: 'GHCR_USER',
                                         usernameVariable: 'GH_USER',
                                         passwordVariable: 'GH_TOKEN')]) {
-        dir('ws') {                       // <<< important: work in the repo dir
+        dir('ws') {
           sh """
-          set -euo pipefail
-          echo "\\n[debug] PWD=\$(pwd); ls -la; echo; ls -la ci || true; ls -la client || true"
+            set -euo pipefail
 
-          echo "\$GH_TOKEN" | docker login ghcr.io -u "\$GH_USER" --password-stdin
+            echo "[debug] show tree"
+            ls -la
+            ls -la ci || true
+            ls -la client || true
 
-          echo "[build] Backend -> ${BACKEND_IMAGE}:${IMAGE_TAG}"
-          docker build -t ${BACKEND_IMAGE}:${IMAGE_TAG} -f ci/Dockerfile.backend .
+            echo "\$GH_TOKEN" | docker login ghcr.io -u "\$GH_USER" --password-stdin
 
-          echo "[tag/push] ${BACKEND_IMAGE}"
-          docker tag  ${BACKEND_IMAGE}:${IMAGE_TAG} ${BACKEND_IMAGE}:latest
-          docker push ${BACKEND_IMAGE}:${IMAGE_TAG}
-          docker push ${BACKEND_IMAGE}:latest
+            # ---- Backend (context = repo root) ----
+            echo "[build] Backend -> ${BACKEND_IMAGE}:${IMAGE_TAG}"
+            docker build -t ${BACKEND_IMAGE}:${IMAGE_TAG} -f ci/Dockerfile.backend .
 
-          echo "[build] Frontend -> ${FRONTEND_IMAGE}:${IMAGE_TAG}"
-          docker build -t ${FRONTEND_IMAGE}:${IMAGE_TAG} -f ci/Dockerfile.frontend client
+            docker tag  ${BACKEND_IMAGE}:${IMAGE_TAG} ${BACKEND_IMAGE}:latest
+            docker push ${BACKEND_IMAGE}:${IMAGE_TAG}
+            docker push ${BACKEND_IMAGE}:latest
 
-          echo "[tag/push] ${FRONTEND_IMAGE}"
-          docker tag  ${FRONTEND_IMAGE}:${IMAGE_TAG} ${FRONTEND_IMAGE}:latest
-          docker push ${FRONTEND_IMAGE}:${IMAGE_TAG}
-          docker push ${FRONTEND_IMAGE}:latest
+            # ---- Frontend (context = repo root) ----
+            echo "[build] Frontend -> ${FRONTEND_IMAGE}:${IMAGE_TAG}"
+            docker build -t ${FRONTEND_IMAGE}:${IMAGE_TAG} -f ci/Dockerfile.frontend .
+
+            docker tag  ${FRONTEND_IMAGE}:${IMAGE_TAG} ${FRONTEND_IMAGE}:latest
+            docker push ${FRONTEND_IMAGE}:${IMAGE_TAG}
+            docker push ${FRONTEND_IMAGE}:latest
           """
         }
       }
