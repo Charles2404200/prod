@@ -37,47 +37,129 @@ pipeline {
       }
     }
 
-    stage('Build & Push Images (BE/FE only)') {
-      steps {
-        dir('ws') {
-          script {
-            def ns = params.GHCR_NAMESPACE.toLowerCase().replaceAll(/[^a-z0-9-]/, '')
-            if (ns != params.GHCR_NAMESPACE) {
-              echo "NOTE: sanitized GHCR namespace '${params.GHCR_NAMESPACE}' -> '${ns}'"
-            }
+    stage('Build & Push Images') {
+  environment {
+    IMAGE_TAG = "${env.GIT_COMMIT ?: 'latest'}"
+    FE_IMG    = 'ghcr.io/bennybach1002/rmit-store-frontend'
+    BE_IMG    = 'ghcr.io/bennybach1002/rmit-store-backend'
+    NGINX_IMG = 'nginx:1.27-alpine'
+  }
+  steps {
+    withCredentials([ usernamePassword(credentialsId: 'GHCR_USER', usernameVariable: 'GH_USER', passwordVariable: 'GH_TOKEN') ]) {
+      sh '''
+        set -euo pipefail
+        FE_IMG="$(echo "$FE_IMG" | tr '[:upper:]' '[:lower:]')"
+        BE_IMG="$(echo "$BE_IMG" | tr '[:upper:]' '[:lower:]')"
+        echo "$GH_TOKEN" | docker login ghcr.io -u "$GH_USER" --password-stdin
 
-            def BACKEND  = "ghcr.io/${ns}/rmit-store-backend"
-            def FRONTEND = "ghcr.io/${ns}/rmit-store-frontend"
-            def TAG      = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
+        # adjust paths if needed
+        docker build -t "$BE_IMG:$IMAGE_TAG" server
+        docker build -t "$FE_IMG:$IMAGE_TAG" client
 
-            sh """
-              set -e
-              echo TAG=${TAG}
-              echo BE=${BACKEND}
-              echo FE=${FRONTEND}
+        docker push "$BE_IMG:$IMAGE_TAG"
+        docker push "$FE_IMG:$IMAGE_TAG"
+      '''
+    }
+  }
+}
 
-              docker build --pull --no-cache -t ${BACKEND}:${TAG}  -f ci/Dockerfile.backend .
-              docker tag ${BACKEND}:${TAG} ${BACKEND}:latest
-              docker push ${BACKEND}:${TAG}
-              docker push ${BACKEND}:latest
+stage('Deploy (Compose to single EC2)') {
+  environment {
+    CTRL_HOST   = '35.153.184.85'        // <-- your Ansible EC2 public IP
+    CTRL_USER   = 'ec2-user'
+    REMOTE_WORK = '/home/ec2-user/deploy'
+    INVENTORY   = 'inventory.ini'
+    IMAGE_TAG   = "${env.GIT_COMMIT ?: 'latest'}"
 
-              docker build --pull --no-cache -t ${FRONTEND}:${TAG} -f ci/Dockerfile.frontend .
-              docker tag ${FRONTEND}:${TAG} ${FRONTEND}:latest
-              docker push ${FRONTEND}:${TAG}
-              docker push ${FRONTEND}:latest
+    FE_IMG      = 'ghcr.io/bennybach1002/rmit-store-frontend'
+    BE_IMG      = 'ghcr.io/bennybach1002/rmit-store-backend'
+    NGINX_IMG   = 'nginx:1.27-alpine'
 
-              docker image prune -f || true
-            """
+    FRONTEND_DOMAIN = '35.153.184.85'    // same IP to serve on http://IP/
+    JWT_SECRET = 'my_secret_string'
+    MONGO_URI  = 'mongodb://localhost:27017/rmit'  // or Atlas URI
+  }
+  steps {
+    withCredentials([
+      usernamePassword(credentialsId: 'GHCR_USER', usernameVariable: 'GH_USER', passwordVariable: 'GH_TOKEN'),
+      sshUserPrivateKey(credentialsId: 'ansible-ec2-key', keyFileVariable: 'CTRL_KEY')
+    ]) {
+      dir('ws') {
+        sh '''#!/usr/bin/env bash
+          set -euo pipefail
 
-            env.IMAGE_TAG      = TAG
-            env.BACKEND_IMAGE  = BACKEND
-            env.FRONTEND_IMAGE = FRONTEND
-          }
-        }
+          echo "[preflight] Test SSH: ${CTRL_USER}@${CTRL_HOST}:22"
+          chmod 600 "${CTRL_KEY}"
+          ssh -o StrictHostKeyChecking=no -i "${CTRL_KEY}" "${CTRL_USER}@${CTRL_HOST}" "echo ok"
+
+          echo "[bundle] Pack Ansible"
+          test -d infra/ansible || { echo "infra/ansible not found"; exit 2; }
+          tar czf ansible.tgz infra/ansible
+
+          echo "[upload] -> ${CTRL_HOST}"
+          ssh -o StrictHostKeyChecking=no -i "${CTRL_KEY}" "${CTRL_USER}@${CTRL_HOST}" "mkdir -p '${REMOTE_WORK}'"
+          scp -o StrictHostKeyChecking=no -i "${CTRL_KEY}" ansible.tgz "${CTRL_USER}@${CTRL_HOST}:${REMOTE_WORK}/ansible.tgz"
+
+          echo "[deploy] Run on controller"
+          ssh -tt -o StrictHostKeyChecking=no -i "${CTRL_KEY}" "${CTRL_USER}@${CTRL_HOST}" bash -lc '
+            set -euo pipefail
+
+            # Ensure Ansible
+            if ! command -v ansible-playbook >/dev/null 2>&1; then
+              if command -v yum >/dev/null 2>&1; then
+                sudo yum -y install ansible python3 || true
+              elif command -v apt-get >/dev/null 2>&1; then
+                sudo apt-get update && sudo apt-get install -y ansible python3 || true
+              fi
+            fi
+
+            cd ${REMOTE_WORK}
+            rm -rf infra || true
+            tar xzf ansible.tgz
+
+            # Local inventory (run on this box)
+            cat > ${INVENTORY} <<EOF
+[edge]
+edge-1 ansible_connection=local
+
+[all:vars]
+ansible_python_interpreter=/usr/bin/python3
+EOF
+
+            export ANSIBLE_STDOUT_CALLBACK=yaml
+            export ANSIBLE_HOST_KEY_CHECKING=False
+
+            FE_IMG_L=$(echo "${FE_IMG}" | tr "[:upper:]" "[:lower:]")
+            BE_IMG_L=$(echo "${BE_IMG}" | tr "[:upper:]" "[:lower:]")
+
+            ansible-playbook -i ${INVENTORY} infra/ansible/site.yml \
+              -e frontend_image="${FE_IMG_L}" \
+              -e backend_image="${BE_IMG_L}" \
+              -e nginx_image="${NGINX_IMG}" \
+              -e image_tag="${IMAGE_TAG}" \
+              -e frontend_domain="${FRONTEND_DOMAIN}" \
+              -e jwt_secret="${JWT_SECRET}" \
+              -e mongo_uri="${MONGO_URI}" \
+              -e ghcr_user="${GH_USER}" \
+              -e ghcr_token="${GH_TOKEN}"
+          '
+
+          echo "[verify] http://${FRONTEND_DOMAIN}/"
+          for i in {1..30}; do
+            code=$(curl -sS -o /dev/null -w "%{http_code}" "http://${FRONTEND_DOMAIN}/" || true)
+            [[ "$code" =~ ^2|3 ]] && { echo "OK HTTP $code"; exit 0; }
+            echo "wait($i) -> $code"; sleep 2
+          done
+          echo "ERROR: site not healthy"
+          exit 1
+        '''
       }
     }
+  }
+}
 
-stage('Deploy (Single EC2, no Nginx/Swarm)') {
+
+/* stage('Deploy (Single EC2, no Nginx/Swarm)') {
   environment {
     // === CHANGE ME ===
     TARGET_IP   = '35.153.184.85'   // your EC2 public IP (NO http://)
@@ -284,3 +366,4 @@ YAML
     failure { echo "❌ Pipeline failed. See console log." }
   }
 }
+*/

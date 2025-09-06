@@ -1,8 +1,13 @@
 ---
-# Define where the backend lives on disk (you said you have "server", not "backend")
-- name: Set common paths
+- name: Set variables from Jenkins (with safe defaults)
   set_fact:
-    backend_dir: "{{ deploy_root }}/server"
+    frontend_image: "{{ frontend_image | default('ghcr.io/youruser/your-frontend') | lower }}"
+    backend_image:  "{{ backend_image  | default('ghcr.io/youruser/your-backend')  | lower }}"
+    nginx_image:    "{{ nginx_image    | default('nginx:1.27-alpine') }}"
+    image_tag:      "{{ image_tag      | default('latest') }}"
+    frontend_domain: "{{ frontend_domain | default(ansible_default_ipv4.address | default('127.0.0.1')) }}"
+    jwt_secret:     "{{ jwt_secret     | default('change_me') }}"
+    mongo_uri:      "{{ mongo_uri      | default('mongodb://localhost:27017/rmit') }}"
 
 - name: Ensure deploy dirs
   become: true
@@ -12,63 +17,60 @@
     mode: "0755"
   loop:
     - "{{ deploy_root }}"
-    - "{{ backend_dir }}"
+    - "{{ deploy_root }}/nginx"
 
-- name: Render backend env
+- name: Drop nginx.conf
   become: true
   template:
-    src: "env.{{ env }}{% if env == 'prod' %}-{{ color }}{% endif %}.j2"
-    dest: "{{ backend_dir }}/.env"
-    mode: "0600"
+    src: "nginx.conf.j2"
+    dest: "{{ deploy_root }}/nginx/nginx.conf"
+    mode: "0644"
 
-- name: Copy compose file (choose by env/color)
+- name: Drop docker-compose.yml
   become: true
-  copy:
-    src: "{{ 'compose-staging.yml' if env == 'staging' else ('compose-' ~ color ~ '.yml') }}"
+  template:
+    src: "docker-compose.yml.j2"
     dest: "{{ deploy_root }}/docker-compose.yml"
     mode: "0644"
 
-- name: Set compose environment file (ports/images)
+- name: Login to GHCR (for compose pull)
   become: true
-  copy:
-    dest: "{{ deploy_root }}/.env"
-    mode: "0644"
-    content: |
-      FRONTEND_IMAGE={{ frontend_image }}
-      BACKEND_IMAGE={{ backend_image }}
-      IMAGE_TAG={{ image_tag }}
-      BACKEND_STAGING_PORT={{ backend_staging_port }}
-      BACKEND_BLUE_PORT={{ backend_blue_port }}
-      BACKEND_GREEN_PORT={{ backend_green_port }}
+  shell: |
+    set -e
+    echo "{{ ghcr_token }}" | docker login ghcr.io -u "{{ ghcr_user }}" --password-stdin
+  no_log: true
+  when: "'ghcr.io' in (frontend_image + backend_image)"
 
-- name: Deploy stack
+- name: Pull images
   become: true
-  community.docker.docker_compose:
-    project_src: "{{ deploy_root }}"
-    files:
-      - "{{ deploy_root }}/docker-compose.yml"
-    pull: always
-    state: present
+  shell: |
+    set -e
+    cd "{{ deploy_root }}"
+    docker compose pull
+  args:
+    executable: /bin/bash
 
-# Build a single port value for the health check
-- name: Compute backend port for health check
-  set_fact:
-    _backend_port: >-
-      {{ backend_staging_port if env == 'staging'
-         else (backend_blue_port if color == 'blue' else backend_green_port) }}
+- name: Up services
+  become: true
+  shell: |
+    set -e
+    cd "{{ deploy_root }}"
+    docker compose up -d
+  args:
+    executable: /bin/bash
 
-- name: Wait for backend health
-  uri:
-    url: "http://{{ (staging_domain | default(frontend_domain)) }}:{{ _backend_port }}{{ backend_health_path }}"
-    status_code: 200
-  register: health
+- name: Wait for frontend (HTTP 200/301/302)
+  become: false
+  delegate_to: localhost
+  vars:
+    url: "http://{{ frontend_domain }}/"
   retries: 30
   delay: 2
-  until: health.status == 200
-
-- name: "Reload Nginx (prod: switch take effect)"
-  when: env == 'prod'
-  become: true
-  service:
-    name: nginx
-    state: reloaded
+  until: health.status|default(0) in [200,301,302]
+  block:
+    - name: Probe
+      uri:
+        url: "{{ url }}"
+        status_code: 200,301,302
+      register: health
+      failed_when: false

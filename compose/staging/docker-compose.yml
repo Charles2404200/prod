@@ -33,7 +33,7 @@ services:
       - MONGO_URI=mongodb+srv://RMIT_Store:123RMIT@rmitstore.uvixzgs.mongodb.net/?retryWrites=true&w=majority&appName=RMITStore
       - JWT_SECRET=my_secret_string
       #docker ip is now elastic so no need to change
-      - CLIENT_URL=http://54.242.180.228:3000
+      - CLIENT_URL=http://35.153.184.85:3000
       - BASE_API_URL=api
     depends_on:
       - mongo
@@ -48,7 +48,7 @@ services:
       - "3000:80"
     environment:
     #docker ip is now elastic so no need to change
-      - REACT_APP_API_URL=http://54.242.180.228:5000
+      - REACT_APP_API_URL=http://35.153.184.85:5000
     depends_on:
       - backend
 
