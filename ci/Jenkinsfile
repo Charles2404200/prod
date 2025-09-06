@@ -1,94 +1,165 @@
 pipeline {
   agent any
   options {
-    // Don’t let two builds share a dirty workspace
     disableConcurrentBuilds()
-    // Auto-wipe workspace after build
-    // (we also manually wipe before checkout below)
+    skipDefaultCheckout(false)  // you used "checkout scm" before — keep it simple
   }
 
   parameters {
-    string(name: 'BRANCH_TO_BUILD', defaultValue: 'ansible-prod', description: 'Git branch to build')
+    string(name: 'GHCR_NAMESPACE', defaultValue: 'benbach2001@gmail.com', description: 'GHCR namespace (user/org)')
+    string(name: 'K8S_NAMESPACE',  defaultValue: 'rmit-store',            description: 'Kubernetes namespace (unused here)')
+    string(name: 'HOST',           defaultValue: '',                       description: 'Optional DNS host (unused here)')
+    string(name: 'BRANCH_TO_BUILD', defaultValue: 'main',                  description: 'Git branch to build')
   }
 
   environment {
-    REPO_URL = 'https://github.com/Charles2404200/prod'
+    APP_NAME = 'rmit-store'
 
-    // Target host
-    HOST_IP   = '34.227.19.111'
-    HOST_USER = 'ec2-user'
+    // initial placeholders; will be overwritten after we sanitize the namespace
+    BACKEND_IMAGE  = "ghcr.io/${params.GHCR_NAMESPACE}/rmit-store-backend"
+    FRONTEND_IMAGE = "ghcr.io/${params.GHCR_NAMESPACE}/rmit-store-frontend"
+    IMAGE_TAG      = ''
 
-    // Local image names (built on Jenkins)
-    BACKEND_IMAGE  = 'rmit-store-backend'
-    FRONTEND_IMAGE = 'rmit-store-frontend'
-    DB_IMAGE       = 'rmit-store-db'
-    IMAGE_TAG      = 'latest'
+    // Ansible target host (edit if needed)
+    CTRL_HOST = '34.227.19.111'
+    CTRL_USER = 'ec2-user'
   }
 
   stages {
-    stage('Reset workspace') {
-      steps {
-        // Wipe anything that might linger (including a broken .git)
-        deleteDir()
-      }
-    }
 
-    stage('Checkout (clean)') {
+    stage('Checkout') {
       steps {
-        checkout([
-          $class: 'GitSCM',
+        checkout([$class: 'GitSCM',
           branches: [[name: "*/${params.BRANCH_TO_BUILD}"]],
-          userRemoteConfigs: [[url: "${env.REPO_URL}"]],
-          extensions: [
-            [$class: 'CleanBeforeCheckout'],
-            [$class: 'CheckoutOption', timeout: 30]
-          ]
+          userRemoteConfigs: [[url: 'https://github.com/Charles2404200/prod']]
         ])
         sh 'git rev-parse --short HEAD || true'
+        sh 'ls -la ci || true; ls -la infra/ansible || true'
       }
     }
 
-    stage('Build 3 Docker images') {
+    stage('Resolve images & tag (sanitize namespace)') {
       steps {
-        sh """
-          echo '[docker] build backend'
-          docker build -t ${env.BACKEND_IMAGE}:${env.IMAGE_TAG} -f ci/Dockerfile.backend .
+        script {
+          // docker-safe: lowercase and only [a-z0-9-]
+          def ns = params.GHCR_NAMESPACE.trim().toLowerCase().replaceAll(/[^a-z0-9-]/, '')
+          if (!ns) { error "GHCR_NAMESPACE '${params.GHCR_NAMESPACE}' sanitizes to empty; choose a user/org with letters/numbers." }
 
-          echo '[docker] build frontend'
-          docker build -t ${env.FRONTEND_IMAGE}:${env.IMAGE_TAG} -f ci/Dockerfile.frontend .
+          env.BACKEND_IMAGE  = "ghcr.io/${ns}/rmit-store-backend"
+          env.FRONTEND_IMAGE = "ghcr.io/${ns}/rmit-store-frontend"
 
-          echo '[docker] build db'
-          docker build -t ${env.DB_IMAGE}:${env.IMAGE_TAG} -f ci/Dockerfile.db .
-        """
+          env.IMAGE_TAG = sh(returnStdout: true, script: 'git rev-parse --short HEAD').trim()
+          if (!env.IMAGE_TAG) { env.IMAGE_TAG = "build-${env.BUILD_NUMBER}" }
+
+          echo "BACKEND_IMAGE=${env.BACKEND_IMAGE}"
+          echo "FRONTEND_IMAGE=${env.FRONTEND_IMAGE}"
+          echo "IMAGE_TAG=${env.IMAGE_TAG}"
+        }
       }
     }
 
-    stage('Copy repo & run Ansible on host') {
+    stage('Login to GHCR') {
+      steps {
+        withCredentials([ usernamePassword(
+          credentialsId: 'GHCR_USER',
+          usernameVariable: 'GH_USER',
+          passwordVariable: 'GH_TOKEN'
+        )]) {
+          sh 'echo "$GH_TOKEN" | docker login ghcr.io -u "$GH_USER" --password-stdin'
+        }
+      }
+    }
+
+    stage('Build & push images (backend + frontend)') {
+      steps {
+        withCredentials([ usernamePassword(
+          credentialsId: 'GHCR_USER',
+          usernameVariable: 'GH_USER',
+          passwordVariable: 'GH_TOKEN'
+        )]) {
+          withEnv([
+            "BACKEND_IMAGE=${env.BACKEND_IMAGE}",
+            "FRONTEND_IMAGE=${env.FRONTEND_IMAGE}",
+            "IMAGE_TAG=${env.IMAGE_TAG}",
+          ]) {
+            sh '''#!/usr/bin/env bash
+set -euo pipefail
+
+echo "[build] backend -> $BACKEND_IMAGE:$IMAGE_TAG"
+docker build -t "$BACKEND_IMAGE:$IMAGE_TAG" -f ci/Dockerfile.backend .
+
+echo "[push] $BACKEND_IMAGE:$IMAGE_TAG"
+docker push "$BACKEND_IMAGE:$IMAGE_TAG"
+
+echo "[build] frontend -> $FRONTEND_IMAGE:$IMAGE_TAG"
+docker build -t "$FRONTEND_IMAGE:$IMAGE_TAG" -f ci/Dockerfile.frontend .
+
+echo "[push] $FRONTEND_IMAGE:$IMAGE_TAG"
+docker push "$FRONTEND_IMAGE:$IMAGE_TAG"
+'''
+          }
+        }
+      }
+    }
+
+    stage('Deploy with Ansible (on remote host)') {
       steps {
         withCredentials([
+          usernamePassword(credentialsId: 'GHCR_USER', usernameVariable: 'GH_USER', passwordVariable: 'GH_TOKEN'),
           sshUserPrivateKey(credentialsId: 'ansible-ec2-key', keyFileVariable: 'SSH_KEY')
         ]) {
-          sh """
-            chmod 600 "${SSH_KEY}"
+          withEnv([
+            "BACKEND_IMAGE=${env.BACKEND_IMAGE}",
+            "FRONTEND_IMAGE=${env.FRONTEND_IMAGE}",
+            "IMAGE_TAG=${env.IMAGE_TAG}",
+            "CTRL_HOST=${env.CTRL_HOST}",
+            "CTRL_USER=${env.CTRL_USER}"
+          ]) {
+            sh '''#!/usr/bin/env bash
+set -euo pipefail
+chmod 600 "$SSH_KEY"
 
-            echo '[ssh] rsync repo to host'
-            rsync -az --delete -e "ssh -o StrictHostKeyChecking=no -i ${SSH_KEY}" ./ ${env.HOST_USER}@${env.HOST_IP}:/home/${env.HOST_USER}/deploy
+# push just the ansible folder to the host
+rsync -az --delete -e "ssh -o StrictHostKeyChecking=no -i $SSH_KEY" infra/ansible/ "$CTRL_USER@$CTRL_HOST:/home/$CTRL_USER/deploy/ansible/"
 
-            echo '[ssh] run ansible-playbook'
-            ssh -o StrictHostKeyChecking=no -i "${SSH_KEY}" ${env.HOST_USER}@${env.HOST_IP} '
-              set -e
-              cd ~/deploy/infra/ansible
-              # Your inventory.ini already points edge-1 to the host
-              ansible-playbook -i inventory.ini site.yml --limit lb
-            '
-          """
+# run ansible on the host so it can use local docker, nginx, etc.
+ssh -o StrictHostKeyChecking=no -i "$SSH_KEY" "$CTRL_USER@$CTRL_HOST" bash -lc '
+  set -euo pipefail
+  cd ~/deploy/ansible
+
+  # install ansible if missing
+  if ! command -v ansible-playbook >/dev/null 2>&1; then
+    if command -v yum >/dev/null 2>&1; then
+      sudo yum -y install ansible python3 || true
+    elif command -v apt-get >/dev/null 2>&1; then
+      sudo apt-get update && sudo apt-get install -y ansible python3 || true
+    fi
+  fi
+
+  export ANSIBLE_STDOUT_CALLBACK=yaml
+  export ANSIBLE_HOST_KEY_CHECKING=False
+
+  # pass images + tag + ghcr credentials so the playbook can docker login & pull
+  ansible-playbook -i inventory.ini site.yml \
+    -e backend_image="'$BACKEND_IMAGE'" \
+    -e frontend_image="'$FRONTEND_IMAGE'" \
+    -e image_tag="'$IMAGE_TAG'" \
+    -e ghcr_user="'$GH_USER'" \
+    -e ghcr_token="'$GH_TOKEN'"
+'
+'''
+          }
         }
       }
     }
   }
 
   post {
-    success { echo "✅ Build + Ansible deploy finished on ${env.HOST_IP}" }
-    failure { echo "❌ Pipeline failed. Check console output." }
+    success {
+      echo "✅ ${env.APP_NAME} built & deployed. Images: ${env.BACKEND_IMAGE}:${env.IMAGE_TAG} , ${env.FRONTEND_IMAGE}:${env.IMAGE_TAG}"
+    }
+    failure {
+      echo "❌ Pipeline failed — check the console log."
+    }
   }
 }
