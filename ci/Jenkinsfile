@@ -1,8 +1,6 @@
 pipeline {
   agent any
-  options {
-    skipDefaultCheckout(true)
-  }
+  options { skipDefaultCheckout(true) }
 
   parameters {
     string(name: 'GHCR_NAMESPACE',  defaultValue: 'BennyBach1002', description: 'GitHub user/org (lowercased for Docker)')
@@ -13,25 +11,23 @@ pipeline {
 
   environment {
     APP_NAME = 'rmit-store'
-
-    // Repo
     REPO_URL = 'https://github.com/Charles2404200/prod'
 
-    // Ansible inside repo
-    INVENTORY_PATH = 'infra/ansible/inventory.ini'
-    PLAYBOOK_PATH  = 'infra/ansible/site.yml'
-
-    // Controller EC2 (where Ansible runs)
+    // Controller/target
     CTRL_HOST   = '34.227.19.111'
     CTRL_USER   = 'ec2-user'
-    REMOTE_WORK = '/home/ec2-user/deploy'
 
-    // App runtime config
-    FRONTEND_DOMAIN = '34.227.19.111'         // where UI should be reachable
+    // App config
+    FRONTEND_DOMAIN = '34.227.19.111'
     JWT_SECRET = 'my_secret_string'
     MONGO_URI  = 'mongodb+srv://RMIT_Store:123RMIT@ac-mr6vgxa-shard-00-00.uvixzgs.mongodb.net/admin?authSource=admin&replicaSet=atlas-gbr5dj-shard-0&retryWrites=true&w=majority&appName=RMITStore'
 
     NGINX_IMG = 'nginx:1.27-alpine'
+
+    // ★ Declare these so they're visible in post{} too. We’ll fill them in “Resolve” stage.
+    IMAGE_TAG = ''
+    FRONTEND_IMAGE = ''
+    BACKEND_IMAGE  = ''
   }
 
   stages {
@@ -52,12 +48,12 @@ pipeline {
       steps {
         script {
           def ns = params.GHCR_NAMESPACE.trim().toLowerCase()
-          env.FE_IMG = "ghcr.io/${ns}/rmit-store-frontend".toLowerCase()
-          env.BE_IMG = "ghcr.io/${ns}/rmit-store-backend".toLowerCase()
+          env.FRONTEND_IMAGE = "ghcr.io/${ns}/rmit-store-frontend".toLowerCase() // ★ set globally
+          env.BACKEND_IMAGE  = "ghcr.io/${ns}/rmit-store-backend".toLowerCase()  // ★ set globally
           env.IMAGE_TAG = sh(returnStdout: true, script: 'cd ws && git rev-parse --short HEAD').trim()
           if (!env.IMAGE_TAG) { env.IMAGE_TAG = "build-${env.BUILD_NUMBER}" }
-          echo "FE_IMG=${env.FE_IMG}"
-          echo "BE_IMG=${env.BE_IMG}"
+          echo "FRONTEND_IMAGE=${env.FRONTEND_IMAGE}"
+          echo "BACKEND_IMAGE=${env.BACKEND_IMAGE}"
           echo "IMAGE_TAG=${env.IMAGE_TAG}"
         }
       }
@@ -73,109 +69,140 @@ pipeline {
       }
     }
 
-stage('Deploy to EC2 (34.227.19.111)') {
-  steps {
-    withCredentials([
-      usernamePassword(credentialsId: 'GHCR_USER', usernameVariable: 'GH_USER', passwordVariable: 'GH_TOKEN'),
-      sshUserPrivateKey(credentialsId: 'ansible-ec2-key', keyFileVariable: 'SSH_KEY')
-    ]) {
-      sh """
-        set -euo pipefail
-        chmod 600 ${SSH_KEY}
+    // ★ Build & push using root context (your Dockerfiles copy client/ from root)
+    stage('Build & push images (BE/FE)') {
+      steps {
+        withCredentials([ usernamePassword(credentialsId: 'GHCR_USER',
+                                           usernameVariable: 'GH_USER',
+                                           passwordVariable: 'GH_TOKEN') ]) {
+          dir('ws') {
+            sh """
+              set -euo pipefail
+              echo "[debug] tree"
+              ls -la; ls -la ci || true; ls -la client || true
 
-        echo "[deploy] SSH into 34.227.19.111"
-        ssh -o StrictHostKeyChecking=no -i ${SSH_KEY} ec2-user@34.227.19.111 bash -s <<'EOF'
-          set -euo pipefail
+              echo "\\$GH_TOKEN" | docker login ghcr.io -u "\\$GH_USER" --password-stdin
 
-          # Ensure docker + compose
-          if ! command -v docker >/dev/null; then
-            sudo yum update -y
-            sudo amazon-linux-extras enable docker
-            sudo yum install -y docker
-            sudo service docker start
-            sudo usermod -aG docker ec2-user
-          fi
+              echo "[build] Backend -> ${BACKEND_IMAGE}:${IMAGE_TAG}"
+              docker build -t ${BACKEND_IMAGE}:${IMAGE_TAG} -f ci/Dockerfile.backend .
 
-          mkdir -p ~/.docker/cli-plugins/
-          if ! command -v docker compose >/dev/null; then
-            curl -SL https://github.com/docker/compose/releases/download/v2.27.0/docker-compose-linux-x86_64 \\
-              -o ~/.docker/cli-plugins/docker-compose
-            chmod +x ~/.docker/cli-plugins/docker-compose
-          fi
+              docker tag  ${BACKEND_IMAGE}:${IMAGE_TAG} ${BACKEND_IMAGE}:latest
+              docker push ${BACKEND_IMAGE}:${IMAGE_TAG}
+              docker push ${BACKEND_IMAGE}:latest
 
-          echo "[docker] Login GHCR"
-          echo "${GH_TOKEN}" | docker login ghcr.io -u "${GH_USER}" --password-stdin
+              echo "[build] Frontend -> ${FRONTEND_IMAGE}:${IMAGE_TAG}"
+              docker build -t ${FRONTEND_IMAGE}:${IMAGE_TAG} -f ci/Dockerfile.frontend .
 
-          echo "[docker] Write docker-compose.yml"
-          mkdir -p ~/deploy
-          cat > ~/deploy/docker-compose.yml <<YAML
-          version: "3.8"
-          services:
-            backend:
-              image: ${BACKEND_IMAGE}:${IMAGE_TAG}
-              environment:
-                MONGO_URI: mongodb://mongo:27017/rmit
-                JWT_SECRET: my_secret_string
-              ports:
-                - "3000:3000"
-              restart: unless-stopped
-
-            frontend:
-              image: ${FRONTEND_IMAGE}:${IMAGE_TAG}
-              environment:
-                VITE_API_BASE: http://34.227.19.111:3000
-              ports:
-                - "80:80"
-              depends_on:
-                - backend
-              restart: unless-stopped
-
-            mongo:
-              image: mongo:6
-              volumes:
-                - mongo_data:/data/db
-              ports:
-                - "27017:27017"
-
-          volumes:
-            mongo_data:
-          YAML
-
-          echo "[docker] Up containers"
-          cd ~/deploy
-          docker compose pull
-          docker compose up -d
-        EOF
-      """
+              docker tag  ${FRONTEND_IMAGE}:${IMAGE_TAG} ${FRONTEND_IMAGE}:latest
+              docker push ${FRONTEND_IMAGE}:${IMAGE_TAG}
+              docker push ${FRONTEND_IMAGE}:latest
+            """
+          }
+        }
+      }
     }
-  }
-}
 
+    // ★ Deploy directly to 34.227.19.111 (compose)
+    stage('Deploy to EC2 (34.227.19.111)') {
+      steps {
+        withCredentials([
+          usernamePassword(credentialsId: 'GHCR_USER', usernameVariable: 'GH_USER', passwordVariable: 'GH_TOKEN'),
+          sshUserPrivateKey(credentialsId: 'ansible-ec2-key', keyFileVariable: 'SSH_KEY')
+        ]) {
+          sh """
+            set -euo pipefail
+            chmod 600 ${SSH_KEY}
+
+            echo "[deploy] SSH into ${CTRL_USER}@${CTRL_HOST}"
+            ssh -o StrictHostKeyChecking=no -i ${SSH_KEY} ${CTRL_USER}@${CTRL_HOST} bash -s <<EOF
+              set -euo pipefail
+
+              # Ensure docker + compose
+              if ! command -v docker >/dev/null 2>&1; then
+                sudo yum update -y
+                sudo amazon-linux-extras enable docker || true
+                sudo yum install -y docker
+                sudo systemctl enable --now docker
+                sudo usermod -aG docker ${CTRL_USER}
+              fi
+              mkdir -p ~/.docker/cli-plugins/
+              if ! docker compose version >/dev/null 2>&1; then
+                curl -SL https://github.com/docker/compose/releases/download/v2.27.0/docker-compose-linux-x86_64 \\
+                  -o ~/.docker/cli-plugins/docker-compose
+                chmod +x ~/.docker/cli-plugins/docker-compose
+              fi
+
+              echo "[docker] Login GHCR"
+              echo "${GH_TOKEN}" | docker login ghcr.io -u "${GH_USER}" --password-stdin
+
+              echo "[docker] Write docker-compose.yml"
+              mkdir -p ~/deploy
+              cat > ~/deploy/docker-compose.yml <<YAML
+              version: "3.8"
+              services:
+                backend:
+                  image: ${BACKEND_IMAGE}:${IMAGE_TAG}
+                  environment:
+                    MONGO_URI: ${MONGO_URI}
+                    JWT_SECRET: ${JWT_SECRET}
+                    PORT: 3000
+                  ports:
+                    - "3000:3000"
+                  restart: unless-stopped
+
+                frontend:
+                  image: ${FRONTEND_IMAGE}:${IMAGE_TAG}
+                  environment:
+                    VITE_API_BASE: http://${FRONTEND_DOMAIN}:3000
+                  ports:
+                    - "80:80"
+                  depends_on:
+                    - backend
+                  restart: unless-stopped
+              YAML
+
+              echo "[docker] Up containers"
+              cd ~/deploy
+              docker compose pull
+              docker compose up -d
+
+              echo "[health] curl http://${FRONTEND_DOMAIN}/"
+              for i in {1..30}; do
+                code=$(curl -sS -o /dev/null -w "%{http_code}" "http://${FRONTEND_DOMAIN}/" || true)
+                [[ "\\$code" =~ ^2|3 ]] && { echo "OK HTTP \\$code"; exit 0; }
+                echo "wait(\\$i) -> \\$code"; sleep 2
+              done
+              echo "ERROR: site not healthy"
+              exit 1
+            EOF
+          """
+        }
+      }
+    }
   } // stages
 
-post {
-  success {
-    echo """
+  post {
+    success {
+      echo """
 ✅ ${env.APP_NAME} deployed successfully
 
 Build:     ${env.BUILD_URL}
 Branch:    ${params.BRANCH_TO_BUILD}
 Tag:       ${env.IMAGE_TAG}
 
-Frontend:  http://34.227.19.111
-API:       http://34.227.19.111:3000
+Frontend:  http://${env.FRONTEND_DOMAIN}
+API:       http://${env.FRONTEND_DOMAIN}:3000
 
 Images:
   - ${env.FRONTEND_IMAGE}:${env.IMAGE_TAG}
   - ${env.BACKEND_IMAGE}:${env.IMAGE_TAG}
 """
+    }
+    failure {
+      echo "❌ Pipeline failed. See console log: ${env.BUILD_URL}console"
+    }
+    always {
+      echo "Build URL: ${env.BUILD_URL}"
+    }
   }
-  failure {
-    echo "❌ Pipeline failed. See console log: ${env.BUILD_URL}console"
-  }
-  always {
-    echo "Build URL: ${env.BUILD_URL}"
-  }
-}
-
 }
