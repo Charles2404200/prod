@@ -1,5 +1,5 @@
 ---
-- name: Install NGINX
+- name: Install Nginx (Amazon Linux / RHEL family)
   become: true
   package:
     name: nginx
@@ -20,24 +20,23 @@
     mode: "0644"
   notify: Reload nginx
 
-- name: Deploy site config (LB & routes)
+- name: Deploy site (reverse proxy)
   become: true
   template:
-    src: rmit.conf.j2
-    dest: /etc/nginx/conf.d/rmit.conf
+    src: app.conf.j2
+    dest: /etc/nginx/conf.d/app.conf
     mode: "0644"
   notify: Reload nginx
 
-- name: Enable & start NGINX
+- name: Test Nginx config
+  become: true
+  command: nginx -t
+  register: nginx_test
+  changed_when: false
+
+- name: Enable & start Nginx
   become: true
   service:
     name: nginx
     state: started
     enabled: true
-
-# handlers
-- name: Reload nginx
-  become: true
-  service:
-    name: nginx
-    state: reloaded

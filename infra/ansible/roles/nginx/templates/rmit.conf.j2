@@ -1,42 +1,27 @@
-# Host NGINX fronting Docker Swarm. It proxies to the published ports on localhost.
-map $http_upgrade $connection_upgrade { default upgrade; '' close; }
+user nginx;
+worker_processes auto;
+error_log /var/log/nginx/error.log;
+pid /run/nginx.pid;
 
-limit_req_zone $binary_remote_addr zone=api_rate:{{ api_rate_zone_size }} rate={{ api_rate }};
+events {
+  worker_connections 10240;
+}
 
-server {
-    listen 80 default_server;
-    server_name {{ staging_domain }};
+http {
+  include       /etc/nginx/mime.types;
+  default_type  application/octet-stream;
 
-    # Frontend (static site behind Swarm FE service on :{{ frontend_published }})
-    location / {
-        proxy_pass http://http://54.196.128.5/:{{ frontend_published }};
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_read_timeout 60s;
+  log_format main '$remote_addr - $remote_user [$time_local] "$request" '
+                  '$status $body_bytes_sent "$http_referer" '
+                  '"$http_user_agent" "$request_time"';
+  access_log /var/log/nginx/access.log main;
 
-        # cache static aggressively
-        location ~* \.(?:js|css|png|jpg|jpeg|gif|ico|svg|woff2?)$ {
-          expires 7d;
-          add_header Cache-Control "public, max-age=604800, immutable";
-          proxy_pass http://http://54.196.128.5/:{{ frontend_published }};
-        }
-    }
+  sendfile on;
+  tcp_nopush on;
+  keepalive_timeout 65;
 
-    # Backend API
-    location /api/ {
-        limit_req zone=api_rate burst={{ api_burst }} nodelay;
-        proxy_pass http://http://54.196.128.5/:{{ backend_published }};
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_read_timeout 120s;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection $connection_upgrade;
-    }
+  gzip on;
+  gzip_types text/plain text/css application/json application/javascript application/xml+rss text/javascript;
 
-    location = /nginx-health { access_log off; return 200 "ok"; }
+  include /etc/nginx/conf.d/*.conf;
 }

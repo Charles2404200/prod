@@ -1,0 +1,23 @@
+# Upstream to your backend container on localhost
+upstream backend_upstream {
+    server 127.0.0.1:{{ backend_staging_port | default(3000) }};
+    # If you later do blue/green, add more servers here and weight them.
+}
+
+server {
+    listen 80 default_server;
+    server_name {{ staging_domain | default('13.220.225.198') }};
+
+    # Proxy the root to your backend so http://13.220.225.198/ returns 200
+    location / {
+        proxy_pass http://backend_upstream/;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+    }
+
+    # If you later split API vs FE, you can point /api/ to backend and / to FE.
+    # location /api/ { proxy_pass http://backend_upstream/; ... }
+}
