@@ -1,195 +1,71 @@
 pipeline {
   agent any
-  options { skipDefaultCheckout(true) }
 
   parameters {
-    string(name: 'GHCR_NAMESPACE',  defaultValue: 'benbach2001@gmail.com', description: 'GHCR namespace (user/org)')
-    string(name: 'K8S_NAMESPACE',   defaultValue: 'rmit-store',            description: 'Kubernetes namespace')
-    string(name: 'HOST',            defaultValue: '',                       description: 'Optional DNS host')
-    string(name: 'BRANCH_TO_BUILD', defaultValue: 'ansible-prod',           description: 'Git branch to build')
+    string(name: 'BRANCH_TO_BUILD', defaultValue: 'ansible-prod', description: 'Branch to build')
   }
 
   environment {
     APP_NAME = 'rmit-store'
     REPO_URL = 'https://github.com/Charles2404200/prod'
 
-    // Deployment target
-    CTRL_HOST  = '34.227.19.111'
-    CTRL_USER  = 'ec2-user'
+    HOST_IP   = '34.227.19.111'
+    HOST_USER = 'ec2-user'
 
-    // Runtime config
-    FRONTEND_DOMAIN = '34.227.19.111'
-    JWT_SECRET = 'my_secret_string'
-    MONGO_URI  = 'mongodb+srv://RMIT_Store:123RMIT@ac-mr6vgxa-shard-00-00.uvixzgs.mongodb.net/admin?authSource=admin&replicaSet=atlas-gbr5dj-shard-0&retryWrites=true&w=majority&appName=RMITStore'
-
-    // placeholders; will be filled in Sanitize stage
-    BACKEND_IMAGE  = ''
-    FRONTEND_IMAGE = ''
-    DB_IMAGE       = ''
-    IMAGE_TAG      = ''
+    BACKEND_IMAGE  = 'rmit-store-backend'
+    FRONTEND_IMAGE = 'rmit-store-frontend'
+    DB_IMAGE       = 'rmit-store-db'
+    IMAGE_TAG      = 'latest'
   }
 
   stages {
-
     stage('Checkout') {
       steps {
-        sh 'rm -rf ws && mkdir -p ws'
-        checkout([$class: 'GitSCM',
-          branches: [[name: "*/${params.BRANCH_TO_BUILD}"]],
-          userRemoteConfigs: [[url: "${env.REPO_URL}"]],
-          extensions: [[ $class: 'RelativeTargetDirectory', relativeTargetDir: 'ws' ]]
-        ])
-        sh 'ls -la ws | head -n 30'
+        git branch: "${params.BRANCH_TO_BUILD}", url: "${env.REPO_URL}"
       }
     }
 
-    stage('Sanitize Image Names & Tag') {
+    stage('Build Docker Images') {
       steps {
-        script {
-          def ns = params.GHCR_NAMESPACE.trim().toLowerCase().replaceAll('[^a-z0-9-]', '')
-          if (!ns) { error "GHCR_NAMESPACE '${params.GHCR_NAMESPACE}' sanitized to empty! Must contain letters/numbers/dashes." }
-
-          env.BACKEND_IMAGE  = "ghcr.io/${ns}/rmit-store-backend"
-          env.FRONTEND_IMAGE = "ghcr.io/${ns}/rmit-store-frontend"
-
-          env.IMAGE_TAG = sh(returnStdout: true, script: 'cd ws && git rev-parse --short HEAD').trim()
-          if (!env.IMAGE_TAG) { env.IMAGE_TAG = "build-${env.BUILD_NUMBER}" }
-
-          echo "Sanitized images:"
-          echo "  BACKEND_IMAGE=${env.BACKEND_IMAGE}"
-          echo "  FRONTEND_IMAGE=${env.FRONTEND_IMAGE}"
-          echo "  DB_IMAGE=${env.DB_IMAGE}"
-          echo "  IMAGE_TAG=${env.IMAGE_TAG}"
-        }
-      }
-    }
-
-    stage('Assert Vars') {
-      steps {
-        withEnv([
-          "BACKEND_IMAGE=${env.BACKEND_IMAGE}",
-          "FRONTEND_IMAGE=${env.FRONTEND_IMAGE}",
-          "IMAGE_TAG=${env.IMAGE_TAG}"
-        ]) {
-          sh '''#!/usr/bin/env bash
-set -euo pipefail
-echo "[vars] BACKEND_IMAGE=$BACKEND_IMAGE"
-echo "[vars] FRONTEND_IMAGE=$FRONTEND_IMAGE"
-echo "[vars] IMAGE_TAG=$IMAGE_TAG"
-'''
-        }
-      }
-    }
-
-    stage('Login to GHCR') {
-      steps {
-        withCredentials([ usernamePassword(credentialsId: 'GHCR_USER',
-                                           usernameVariable: 'GH_USER',
-                                           passwordVariable: 'GH_TOKEN') ]) {
-          sh 'echo "$GH_TOKEN" | docker login ghcr.io -u "$GH_USER" --password-stdin'
-        }
-      }
-    }
-
-    stage('Build & Push Images') {
-  steps {
-    dir('ws') {
-      script {
-        echo "Building ${env.BACKEND_IMAGE}:${env.IMAGE_TAG}"
         sh """
-          echo "$GH_TOKEN" | docker login ghcr.io -u "$GH_USER" --password-stdin
+          echo "[docker] build backend"
           docker build -t ${env.BACKEND_IMAGE}:${env.IMAGE_TAG} -f ci/Dockerfile.backend .
-          docker push ${env.BACKEND_IMAGE}:${env.IMAGE_TAG}
+
+          echo "[docker] build frontend"
           docker build -t ${env.FRONTEND_IMAGE}:${env.IMAGE_TAG} -f ci/Dockerfile.frontend .
-          docker push ${env.FRONTEND_IMAGE}:${env.IMAGE_TAG}
+
+          echo "[docker] build db"
+          docker build -t ${env.DB_IMAGE}:${env.IMAGE_TAG} -f ci/Dockerfile.db .
         """
       }
     }
-  }
-}
 
-
-    stage('Deploy to EC2 (34.227.19.111)') {
+    stage('Deploy to Host with Ansible') {
       steps {
         withCredentials([
-          usernamePassword(credentialsId: 'GHCR_USER', usernameVariable: 'GH_USER', passwordVariable: 'GH_TOKEN'),
           sshUserPrivateKey(credentialsId: 'ansible-ec2-key', keyFileVariable: 'SSH_KEY')
         ]) {
-          withEnv([
-            "BACKEND_IMAGE=${env.BACKEND_IMAGE}",
-            "FRONTEND_IMAGE=${env.FRONTEND_IMAGE}",
-            "IMAGE_TAG=${env.IMAGE_TAG}",
-            "FRONTEND_DOMAIN=${env.FRONTEND_DOMAIN}",
-            "MONGO_URI=${env.MONGO_URI}",
-            "JWT_SECRET=${env.JWT_SECRET}",
-            "CTRL_HOST=${env.CTRL_HOST}",
-            "CTRL_USER=${env.CTRL_USER}"
-          ]) {
-            sh '''#!/usr/bin/env bash
-set -euo pipefail
-chmod 600 "$SSH_KEY"
+          sh """
+            echo "[ssh] copy repo to host"
+            rsync -avz -e "ssh -o StrictHostKeyChecking=no -i ${SSH_KEY}" ./ ${env.HOST_USER}@${env.HOST_IP}:/home/${env.HOST_USER}/deploy
 
-ssh -o StrictHostKeyChecking=no -i "$SSH_KEY" "$CTRL_USER@$CTRL_HOST" bash -s <<EOF
-set -euo pipefail
-
-echo "[docker] login ghcr"
-echo "$GH_TOKEN" | docker login ghcr.io -u "$GH_USER" --password-stdin
-
-mkdir -p ~/deploy
-cat > ~/deploy/docker-compose.yml <<YAML
-version: "3.8"
-services:
-  backend:
-    image: $BACKEND_IMAGE:$IMAGE_TAG
-    environment:
-      MONGO_URI: $MONGO_URI
-      JWT_SECRET: $JWT_SECRET
-      PORT: 3000
-    ports:
-      - "3000:3000"
-    restart: unless-stopped
-
-  frontend:
-    image: $FRONTEND_IMAGE:$IMAGE_TAG
-    environment:
-      VITE_API_BASE: http://$FRONTEND_DOMAIN:3000
-    ports:
-      - "80:80"
-    depends_on:
-      - backend
-    restart: unless-stopped
-YAML
-
-cd ~/deploy
-docker compose pull
-docker compose up -d
-EOF
-'''
-          }
+            echo "[ssh] run ansible"
+            ssh -o StrictHostKeyChecking=no -i ${SSH_KEY} ${env.HOST_USER}@${env.HOST_IP} '
+              cd ~/deploy/infra/ansible
+              ansible-playbook -i inventory.ini site.yml --limit lb
+            '
+          """
         }
       }
     }
-
-  } // stages
+  }
 
   post {
     success {
-      echo """
-✅ ${env.APP_NAME} built & deployed
-
-Build:     ${env.BUILD_URL}
-Branch:    ${params.BRANCH_TO_BUILD}
-Tag:       ${env.IMAGE_TAG}
-
-Frontend:  http://${env.FRONTEND_DOMAIN}
-API:       http://${env.FRONTEND_DOMAIN}:3000
-
-Images:
-  - ${env.FRONTEND_IMAGE}:${env.IMAGE_TAG}
-  - ${env.BACKEND_IMAGE}:${env.IMAGE_TAG}
-"""
+      echo "✅ ${env.APP_NAME} built & deployed on ${env.HOST_IP}"
     }
-    failure { echo "❌ Pipeline failed. See console: ${env.BUILD_URL}console" }
-    always  { echo "Build URL: ${env.BUILD_URL}" }
+    failure {
+      echo "❌ Pipeline failed, check console"
+    }
   }
 }
