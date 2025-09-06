@@ -23,7 +23,7 @@ services:
   frontend:
     #context:
     #dockerfile:
-    image: ghcr.io/benbach2001/rmit-store-backend:latest
+    image: ghcr.io/benbach2001/rmit-store-frontend:latest
     ports:
       - "3000:80"
     environment:
