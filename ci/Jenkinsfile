@@ -76,29 +76,38 @@ pipeline {
 stage('Build & push images (BE/FE)') {
   steps {
     script {
+      // sanitize namespace once more (in case parameter is an email)
       def ns = params.GHCR_NAMESPACE.toLowerCase().replaceAll(/[^a-z0-9-]/, '')
       env.BACKEND_IMAGE  = "ghcr.io/${ns}/rmit-store-backend"
       env.FRONTEND_IMAGE = "ghcr.io/${ns}/rmit-store-frontend"
-      env.IMAGE_TAG      = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
 
       withCredentials([usernamePassword(credentialsId: 'GHCR_USER',
                                         usernameVariable: 'GH_USER',
                                         passwordVariable: 'GH_TOKEN')]) {
-        sh """
-        echo "$GH_TOKEN" | docker login ghcr.io -u "$GH_USER" --password-stdin
+        dir('ws') {                       // <<< important: work in the repo dir
+          sh """
+          set -euo pipefail
+          echo "\\n[debug] PWD=\$(pwd); ls -la; echo; ls -la ci || true; ls -la client || true"
 
-        # ---- Backend ----
-        docker build -t ${BACKEND_IMAGE}:${IMAGE_TAG} -f ci/Dockerfile.backend .
-        docker tag ${BACKEND_IMAGE}:${IMAGE_TAG} ${BACKEND_IMAGE}:latest
-        docker push ${BACKEND_IMAGE}:${IMAGE_TAG}
-        docker push ${BACKEND_IMAGE}:latest
+          echo "\$GH_TOKEN" | docker login ghcr.io -u "\$GH_USER" --password-stdin
 
-        # ---- Frontend ----
-        docker build -t ${FRONTEND_IMAGE}:${IMAGE_TAG} -f ci/Dockerfile.frontend client
-        docker tag ${FRONTEND_IMAGE}:${IMAGE_TAG} ${FRONTEND_IMAGE}:latest
-        docker push ${FRONTEND_IMAGE}:${IMAGE_TAG}
-        docker push ${FRONTEND_IMAGE}:latest
-        """
+          echo "[build] Backend -> ${BACKEND_IMAGE}:${IMAGE_TAG}"
+          docker build -t ${BACKEND_IMAGE}:${IMAGE_TAG} -f ci/Dockerfile.backend .
+
+          echo "[tag/push] ${BACKEND_IMAGE}"
+          docker tag  ${BACKEND_IMAGE}:${IMAGE_TAG} ${BACKEND_IMAGE}:latest
+          docker push ${BACKEND_IMAGE}:${IMAGE_TAG}
+          docker push ${BACKEND_IMAGE}:latest
+
+          echo "[build] Frontend -> ${FRONTEND_IMAGE}:${IMAGE_TAG}"
+          docker build -t ${FRONTEND_IMAGE}:${IMAGE_TAG} -f ci/Dockerfile.frontend client
+
+          echo "[tag/push] ${FRONTEND_IMAGE}"
+          docker tag  ${FRONTEND_IMAGE}:${IMAGE_TAG} ${FRONTEND_IMAGE}:latest
+          docker push ${FRONTEND_IMAGE}:${IMAGE_TAG}
+          docker push ${FRONTEND_IMAGE}:latest
+          """
+        }
       }
     }
   }
