@@ -6,7 +6,7 @@ pipeline {
     string(name: 'GHCR_NAMESPACE',  defaultValue: 'benbach2001@gmail.com', description: 'GHCR namespace (user/org)')
     string(name: 'K8S_NAMESPACE',   defaultValue: 'rmit-store',            description: 'Kubernetes namespace')
     string(name: 'HOST',            defaultValue: '',                       description: 'Optional DNS host')
-    string(name: 'BRANCH_TO_BUILD', defaultValue: 'ansible-prod',                   description: 'Git branch to build')
+    string(name: 'BRANCH_TO_BUILD', defaultValue: 'ansible-prod',           description: 'Git branch to build')
   }
 
   environment {
@@ -22,10 +22,10 @@ pipeline {
     JWT_SECRET = 'my_secret_string'
     MONGO_URI  = 'mongodb+srv://RMIT_Store:123RMIT@ac-mr6vgxa-shard-00-00.uvixzgs.mongodb.net/admin?authSource=admin&replicaSet=atlas-gbr5dj-shard-0&retryWrites=true&w=majority&appName=RMITStore'
 
-    // Initial (will be sanitized in Resolve stage)
-    BACKEND_IMAGE  = "ghcr.io/${params.GHCR_NAMESPACE}/rmit-store-backend"
-    FRONTEND_IMAGE = "ghcr.io/${params.GHCR_NAMESPACE}/rmit-store-frontend"
-    DB_IMAGE       = "ghcr.io/${params.GHCR_NAMESPACE}/rmit-store-db"
+    // placeholders; will be filled in Sanitize stage
+    BACKEND_IMAGE  = ''
+    FRONTEND_IMAGE = ''
+    DB_IMAGE       = ''
     IMAGE_TAG      = ''
   }
 
@@ -44,30 +44,43 @@ pipeline {
     }
 
     stage('Sanitize Image Names & Tag') {
-  steps {
-    script {
-      def ns = params.GHCR_NAMESPACE.trim().toLowerCase().replaceAll('[^a-z0-9-]', '')
-      if (!ns) { error "GHCR_NAMESPACE '${params.GHCR_NAMESPACE}' sanitized to empty! Must contain letters/numbers." }
+      steps {
+        script {
+          def ns = params.GHCR_NAMESPACE.trim().toLowerCase().replaceAll('[^a-z0-9-]', '')
+          if (!ns) { error "GHCR_NAMESPACE '${params.GHCR_NAMESPACE}' sanitized to empty! Must contain letters/numbers/dashes." }
 
-      env.BACKEND_IMAGE  = "ghcr.io/${ns}/rmit-store-backend"
-      env.FRONTEND_IMAGE = "ghcr.io/${ns}/rmit-store-frontend"
-      env.DB_IMAGE       = "ghcr.io/${ns}/rmit-store-db"
+          env.BACKEND_IMAGE  = "ghcr.io/${ns}/rmit-store-backend"
+          env.FRONTEND_IMAGE = "ghcr.io/${ns}/rmit-store-frontend"
+          env.DB_IMAGE       = "ghcr.io/${ns}/rmit-store-db"
 
-      env.IMAGE_TAG = sh(
-        returnStdout: true,
-        script: 'cd ws && git rev-parse --short HEAD'
-      ).trim()
-      if (!env.IMAGE_TAG) { env.IMAGE_TAG = "build-${env.BUILD_NUMBER}" }
+          env.IMAGE_TAG = sh(returnStdout: true, script: 'cd ws && git rev-parse --short HEAD').trim()
+          if (!env.IMAGE_TAG) { env.IMAGE_TAG = "build-${env.BUILD_NUMBER}" }
 
-      echo "Sanitized images:"
-      echo "  BACKEND_IMAGE=${env.BACKEND_IMAGE}"
-      echo "  FRONTEND_IMAGE=${env.FRONTEND_IMAGE}"
-      echo "  DB_IMAGE=${env.DB_IMAGE}"
-      echo "  IMAGE_TAG=${env.IMAGE_TAG}"
+          echo "Sanitized images:"
+          echo "  BACKEND_IMAGE=${env.BACKEND_IMAGE}"
+          echo "  FRONTEND_IMAGE=${env.FRONTEND_IMAGE}"
+          echo "  DB_IMAGE=${env.DB_IMAGE}"
+          echo "  IMAGE_TAG=${env.IMAGE_TAG}"
+        }
+      }
     }
-  }
-}
 
+    stage('Assert Vars') {
+      steps {
+        withEnv([
+          "BACKEND_IMAGE=${env.BACKEND_IMAGE}",
+          "FRONTEND_IMAGE=${env.FRONTEND_IMAGE}",
+          "IMAGE_TAG=${env.IMAGE_TAG}"
+        ]) {
+          sh '''#!/usr/bin/env bash
+set -euo pipefail
+echo "[vars] BACKEND_IMAGE=$BACKEND_IMAGE"
+echo "[vars] FRONTEND_IMAGE=$FRONTEND_IMAGE"
+echo "[vars] IMAGE_TAG=$IMAGE_TAG"
+'''
+        }
+      }
+    }
 
     stage('Login to GHCR') {
       steps {
@@ -96,16 +109,15 @@ set -euo pipefail
 echo "[debug] repo tree:"
 ls -la ci || true
 
+# (optional) login again if your agent loses auth between stages
+echo "$GH_TOKEN" | docker login ghcr.io -u "$GH_USER" --password-stdin
+
 echo "[build] Backend -> $BACKEND_IMAGE:$IMAGE_TAG"
 docker build -t "$BACKEND_IMAGE:$IMAGE_TAG" -f ci/Dockerfile.backend .
-
-echo "[push] $BACKEND_IMAGE:$IMAGE_TAG"
 docker push "$BACKEND_IMAGE:$IMAGE_TAG"
 
 echo "[build] Frontend -> $FRONTEND_IMAGE:$IMAGE_TAG"
 docker build -t "$FRONTEND_IMAGE:$IMAGE_TAG" -f ci/Dockerfile.frontend .
-
-echo "[push] $FRONTEND_IMAGE:$IMAGE_TAG"
 docker push "$FRONTEND_IMAGE:$IMAGE_TAG"
 '''
             }
