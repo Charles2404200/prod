@@ -22,7 +22,6 @@ pipeline {
     MONGO_URI  = 'mongodb+srv://RMIT_Store:123RMIT@ac-mr6vgxa-shard-00-00.uvixzgs.mongodb.net/admin?authSource=admin&replicaSet=atlas-gbr5dj-shard-0&retryWrites=true&w=majority&appName=RMITStore'
 
     // Will be set in “Resolve” stage so they’re visible everywhere (incl. post{})
-    APP_NAME = 'rmit-store'
     BACKEND_IMAGE  = "ghcr.io/${params.GHCR_NAMESPACE}/rmit-store-backend"
     FRONTEND_IMAGE = "ghcr.io/${params.GHCR_NAMESPACE}/rmit-store-frontend"
     DB_IMAGE       = "ghcr.io/${params.GHCR_NAMESPACE}/rmit-store-db"
