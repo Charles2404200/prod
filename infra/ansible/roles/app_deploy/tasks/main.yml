@@ -1,35 +1,34 @@
 ---
-# roles/app_deploy/tasks/main.yml
+- name: Set common paths
+  vars:
+    backend_dir: "{{ deploy_root }}/server"
 
-- name: "Ensure deploy dirs"
-  become: true
+- name: Ensure deploy dirs
   file:
     path: "{{ item }}"
     state: directory
-    mode: "0755"
+    mode: '0755'
   loop:
     - "{{ deploy_root }}"
-    - "{{ deploy_root }}/backend"
+    - "{{ backend_dir }}"
 
-- name: "Render backend env"
+- name: Render backend env
   become: true
   template:
     src: "env.{{ env }}{% if env == 'prod' %}-{{ color }}{% endif %}.j2"
-    dest: "{{ deploy_root }}/backend/.env"
+    dest: "{{ backend_dir }}/.env"
     mode: "0600"
 
-- name: "Copy compose file (choose by env/color)"
-  become: true
+- name: Copy compose file (choose by env/color)
   copy:
     src: >-
       {{ 'compose-staging.yml'
          if env == 'staging'
-         else ('compose-' ~ (color | default('blue')) ~ '.yml') }}
+         else ('compose-' ~ color ~ '.yml') }}
     dest: "{{ deploy_root }}/docker-compose.yml"
     mode: "0644"
 
-- name: "Set compose environment file (ports/images)"
-  become: true
+- name: Set compose environment file (ports/images)
   copy:
     dest: "{{ deploy_root }}/.env"
     mode: "0644"
@@ -41,8 +40,7 @@
       BACKEND_BLUE_PORT={{ backend_blue_port }}
       BACKEND_GREEN_PORT={{ backend_green_port }}
 
-- name: "Deploy stack"
-  become: true
+- name: Deploy stack
   community.docker.docker_compose:
     project_src: "{{ deploy_root }}"
     files:
@@ -50,29 +48,25 @@
     pull: always
     state: present
 
-# -------- Health probe --------
-- name: "Compute backend health URL"
-  set_fact:
-    probe_host: "{{ staging_domain | default('54.87.144.232') }}"
-    probe_port: >-
-      {{ (env == 'staging')
-         | ternary(backend_staging_port,
-                   ((color | default('blue')) == 'blue')
-                   | ternary(backend_blue_port, backend_green_port)) }}
-    probe_url: "http://{{ probe_host }}:{{ probe_port }}{{ backend_health_path }}"
-
-- name: "Wait for backend health"
+# Health check hits the correct host/IP and port based on env/color
+- name: Wait for backend health
   uri:
-    url: "{{ probe_url }}"
+    url: >-
+      http://{{ staging_domain | default(frontend_domain) }}:{% if env == 'staging' -%}
+      {{ backend_staging_port }}
+      {%- elif color == 'blue' -%}
+      {{ backend_blue_port }}
+      {%- else -%}
+      {{ backend_green_port }}
+      {%- endif -%}{{ backend_health_path }}
     status_code: 200
   register: health
   retries: 30
   delay: 2
   until: health.status == 200
 
-- name: "Reload Nginx (prod: switch take effect)"
+- name: Reload Nginx (prod: switch take effect)
   when: env == 'prod'
-  become: true
   service:
     name: nginx
     state: reloaded

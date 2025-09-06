@@ -79,116 +79,84 @@ pipeline {
 
 stage('Deploy with Ansible (Swarm + NGINX)') {
   environment {
-    CTRL_HOST    = '35.153.184.85'            // controller public IP (no http://)
-    ADVERTISE_IP = '35.153.184.85'            // same public IP for nginx/swarm
-    CTRL_USER    = 'ec2-user'
+    // Controller you SSH into to run Ansible
+    CTRL_HOST     = '35.153.184.85'
+    CTRL_USER     = 'ec2-user'
+    REMOTE_WORK   = '/home/ec2-user/deploy'
+    REMOTE_KEY    = '/home/ec2-user/edge.pem'
 
-    REMOTE_WORK  = '/home/ec2-user/deploy'
-    REMOTE_KEY   = '/home/ec2-user/edge.pem'
+    // Ansible targets (same box for lb+staging)
+    INVENTORY     = 'infra/ansible/inventory.ini'
+    PLAYBOOK      = 'infra/ansible/site.yml'
+    DEPLOY_LIMIT  = 'lb,staging'
 
-    INVENTORY    = 'infra/ansible/inventory.ini'
-    PLAYBOOK     = 'infra/ansible/site.yml'
-    DEPLOY_LIMIT = 'lb,staging'
+    // <-- set your public host/IP once here
+    FRONTEND_DOMAIN = '35.153.184.85'
   }
   steps {
     withCredentials([
       usernamePassword(credentialsId: 'GHCR_USER', usernameVariable: 'GH_USER', passwordVariable: 'GH_TOKEN'),
-      sshUserPrivateKey(credentialsId: 'ansible-ec2-key', keyFileVariable: 'CTRL_KEY'),
-      string(credentialsId: 'MONGO_URI',  variable: 'MONGO_URI'),
-      string(credentialsId: 'JWT_SECRET', variable: 'JWT_SECRET')
+      sshUserPrivateKey(credentialsId: 'ansible-ec2-key', keyFileVariable: 'CTRL_KEY')
     ]) {
       dir('ws') {
         sh '''#!/usr/bin/env bash
           set -euo pipefail
 
-          echo "[preflight] Test SSH: ${CTRL_USER}@${CTRL_HOST}:22"
-          chmod 600 "${CTRL_KEY}"
-          ssh -vvv -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=no \
-              -i "${CTRL_KEY}" "${CTRL_USER}@${CTRL_HOST}" 'echo ok'
-
           echo "[deploy] Package Ansible folder…"
           test -d infra/ansible || { echo "infra/ansible not found"; exit 2; }
           tar czf ansible.tgz infra/ansible
 
+          echo "[preflight] Test SSH: ${CTRL_USER}@${CTRL_HOST}:22"
+          chmod 600 "${CTRL_KEY}"
+          ssh -o StrictHostKeyChecking=no -i "${CTRL_KEY}" "${CTRL_USER}@${CTRL_HOST}" "echo ok"
+
           echo "[deploy] Push bundle + key to controller ${CTRL_HOST}…"
           ssh -o StrictHostKeyChecking=no -i "${CTRL_KEY}" "${CTRL_USER}@${CTRL_HOST}" "mkdir -p '${REMOTE_WORK}'"
           scp -o StrictHostKeyChecking=no -i "${CTRL_KEY}" ansible.tgz "${CTRL_USER}@${CTRL_HOST}:${REMOTE_WORK}/ansible.tgz"
-          # copy same key to controller for Ansible to use
+          # re-use the same key on the controller for local SSH (if your playbook uses it)
           scp -o StrictHostKeyChecking=no -i "${CTRL_KEY}" "${CTRL_KEY}" "${CTRL_USER}@${CTRL_HOST}:${REMOTE_KEY}"
-          ssh -o StrictHostKeyChecking=no -i "${CTRL_KEY}" "${CTRL_USER}@${CTRL_HOST}" "chmod 600 '${REMOTE_KEY}'"
 
           echo "[deploy] Run Ansible on controller…"
-          # pass all needed env to the remote shell so heredoc can use them
-          ssh -tt -o StrictHostKeyChecking=no -i "${CTRL_KEY}" \
-            "${CTRL_USER}@${CTRL_HOST}" \
-            "FRONTEND_IMAGE='${FRONTEND_IMAGE}' BACKEND_IMAGE='${BACKEND_IMAGE}' IMAGE_TAG='${IMAGE_TAG}' GH_USER='${GH_USER}' GH_TOKEN='${GH_TOKEN}' MONGO_URI='${MONGO_URI}' JWT_SECRET='${JWT_SECRET}' ADVERTISE_IP='${ADVERTISE_IP}' CTRL_USER='${CTRL_USER}' REMOTE_WORK='${REMOTE_WORK}' REMOTE_KEY='${REMOTE_KEY}' INVENTORY='${INVENTORY}' PLAYBOOK='${PLAYBOOK}' DEPLOY_LIMIT='${DEPLOY_LIMIT}' bash -s" <<'REMOTE'
-set -euo pipefail
+          ssh -tt -o StrictHostKeyChecking=no -i "${CTRL_KEY}" "${CTRL_USER}@${CTRL_HOST}" bash -lc "'
+            set -euo pipefail
 
-# Ensure Ansible
-if ! command -v ansible-playbook >/dev/null 2>&1; then
-  if command -v yum >/dev/null 2>&1; then
-    sudo yum -y install ansible python3 || true
-  elif command -v apt-get >/dev/null 2>&1; then
-    sudo apt-get update && sudo apt-get install -y ansible python3 || true
-  fi
-fi
+            # Ensure Ansible
+            if ! command -v ansible-playbook >/dev/null 2>&1; then
+              if command -v yum >/dev/null 2>&1; then
+                sudo yum -y install ansible python3 || true
+              elif command -v apt-get >/dev/null 2>&1; then
+                sudo apt-get update && sudo apt-get install -y ansible python3 || true
+              fi
+            fi
 
-# Unpack repo
-rm -rf "${REMOTE_WORK}/infra" || true
-tar xzf "${REMOTE_WORK}/ansible.tgz" -C "${REMOTE_WORK}"
-cd "${REMOTE_WORK}"
+            cd ${REMOTE_WORK}
+            rm -rf infra || true
+            tar xzf ansible.tgz
 
-# Generate inventory that forces PUBLIC IP for both groups
-cat > "${INVENTORY}" <<EOF
-[lb]
-edge-1 ansible_host=${ADVERTISE_IP} ansible_user=${CTRL_USER} ansible_ssh_private_key_file=${REMOTE_KEY}
-[staging]
-edge-1 ansible_host=${ADVERTISE_IP} ansible_user=${CTRL_USER} ansible_ssh_private_key_file=${REMOTE_KEY}
-[all:vars]
-ansible_python_interpreter=/usr/bin/python3
-EOF
+            # Optional collections
+            if [ -f infra/ansible/requirements.yml ]; then
+              ansible-galaxy collection install -r infra/ansible/requirements.yml -p ./collections || true
+              export ANSIBLE_COLLECTIONS_PATHS=\"./collections:$HOME/.ansible/collections:/usr/share/ansible/collections\"
+            fi
 
-# group_vars override so nginx serves http://${ADVERTISE_IP}/
-mkdir -p infra/ansible/group_vars
-cat > infra/ansible/group_vars/all.yml <<YML
-frontend_image: "${FRONTEND_IMAGE}"
-backend_image:  "${BACKEND_IMAGE}"
-image_tag:      "${IMAGE_TAG}"
-frontend_http_port: 80
-backend_staging_port: 3000
-staging_domain: "${ADVERTISE_IP}"
-deploy_root: "/opt/app"
-mongo_uri: "${MONGO_URI}"
-jwt_secret: "${JWT_SECRET}"
-YML
+            export ANSIBLE_STDOUT_CALLBACK=yaml
+            export ANSIBLE_HOST_KEY_CHECKING=False
 
-# Optional: init Swarm (idempotent)
-if command -v docker >/dev/null 2>&1; then
-  if ! docker info --format "{{.Swarm.LocalNodeState}}" 2>/dev/null | grep -qi active; then
-    sudo docker swarm init --advertise-addr "${ADVERTISE_IP}" || true
-  fi
-fi
-
-# Collections (and make our path first to silence warning)
-if [ -f infra/ansible/requirements.yml ]; then
-  ansible-galaxy collection install -p "${REMOTE_WORK}/collections" -r infra/ansible/requirements.yml
-  export ANSIBLE_COLLECTIONS_PATHS="${REMOTE_WORK}/collections:$HOME/.ansible/collections:/usr/share/ansible/collections"
-fi
-
-export ANSIBLE_STDOUT_CALLBACK=yaml
-export ANSIBLE_HOST_KEY_CHECKING=False
-
-# *** SINGLE-LINE ansible-playbook to avoid broken continuations ***
-ansible-playbook -i "${INVENTORY}" "${PLAYBOOK}" -l "${DEPLOY_LIMIT}" --private-key "${REMOTE_KEY}" -e env=staging -e docker_user="${CTRL_USER}" -e docker_cli_plugins_dir=/usr/libexec/docker/cli-plugins -e docker_compose_version=v2.27.0 -e deploy_root=/opt/app -e backend_image="${BACKEND_IMAGE}" -e frontend_image="${FRONTEND_IMAGE}" -e image_tag="${IMAGE_TAG}" -e ghcr_user="${GH_USER}" -e ghcr_token="${GH_TOKEN}" -e "mongo_uri=${MONGO_URI}" -e "jwt_secret=${JWT_SECRET}"
-REMOTE
-
-          echo "[verify] Wait for http://${ADVERTISE_IP}/"
-          for i in {1..45}; do
-            code=$(curl -sS -o /dev/null -w "%{http_code}" "http://${ADVERTISE_IP}/" || true)
-            if [[ "$code" =~ ^2|3 ]]; then echo "OK: HTTP $code"; exit 0; fi
-            echo "Waiting (attempt $i): got $code"; sleep 2
-          done
-          echo "ERROR: site did not become healthy at http://${ADVERTISE_IP}/"; exit 1
+            # Run playbook with the frontend_domain & staging_domain injected
+            ansible-playbook -i ${INVENTORY} ${PLAYBOOK} \\
+              -l ${DEPLOY_LIMIT} \\
+              -e env=staging \\
+              -e backend_image=${BACKEND_IMAGE} \\
+              -e frontend_image=${FRONTEND_IMAGE} \\
+              -e image_tag=${IMAGE_TAG} \\
+              -e ghcr_user=${GH_USER} \\
+              -e ghcr_token=${GH_TOKEN} \\
+              -e docker_user=${CTRL_USER} \\
+              -e docker_cli_plugins_dir=/usr/libexec/docker/cli-plugins \\
+              -e docker_compose_version=v2.27.0 \\
+              -e frontend_domain=${FRONTEND_DOMAIN} \\
+              -e staging_domain=${FRONTEND_DOMAIN}
+          '"
         '''
       }
     }
