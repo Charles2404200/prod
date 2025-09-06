@@ -1,13 +1,15 @@
 ---
+# Adjust this if you actually want /backend instead of /server
 - name: Set common paths
   vars:
     backend_dir: "{{ deploy_root }}/server"
 
 - name: Ensure deploy dirs
+  become: true
   file:
     path: "{{ item }}"
     state: directory
-    mode: '0755'
+    mode: "0755"
   loop:
     - "{{ deploy_root }}"
     - "{{ backend_dir }}"
@@ -20,15 +22,14 @@
     mode: "0600"
 
 - name: Copy compose file (choose by env/color)
+  become: true
   copy:
-    src: >-
-      {{ 'compose-staging.yml'
-         if env == 'staging'
-         else ('compose-' ~ color ~ '.yml') }}
+    src: "{{ 'compose-staging.yml' if env == 'staging' else ('compose-' ~ color ~ '.yml') }}"
     dest: "{{ deploy_root }}/docker-compose.yml"
     mode: "0644"
 
 - name: Set compose environment file (ports/images)
+  become: true
   copy:
     dest: "{{ deploy_root }}/.env"
     mode: "0644"
@@ -41,6 +42,7 @@
       BACKEND_GREEN_PORT={{ backend_green_port }}
 
 - name: Deploy stack
+  become: true
   community.docker.docker_compose:
     project_src: "{{ deploy_root }}"
     files:
@@ -48,25 +50,25 @@
     pull: always
     state: present
 
-# Health check hits the correct host/IP and port based on env/color
+# Build a single port value for the health check
+- name: Compute backend port for health check
+  set_fact:
+    _backend_port: >-
+      {{ backend_staging_port if env == 'staging'
+         else (backend_blue_port if color == 'blue' else backend_green_port) }}
+
 - name: Wait for backend health
   uri:
-    url: >-
-      http://{{ staging_domain | default(frontend_domain) }}:{% if env == 'staging' -%}
-      {{ backend_staging_port }}
-      {%- elif color == 'blue' -%}
-      {{ backend_blue_port }}
-      {%- else -%}
-      {{ backend_green_port }}
-      {%- endif -%}{{ backend_health_path }}
+    url: "http://{{ staging_domain | default(frontend_domain) }}:{{ _backend_port }}{{ backend_health_path }}"
     status_code: 200
   register: health
   retries: 30
   delay: 2
   until: health.status == 200
 
-- name: Reload Nginx (prod: switch take effect)
+- name: "Reload Nginx (prod: switch take effect)"
   when: env == 'prod'
+  become: true
   service:
     name: nginx
     state: reloaded
