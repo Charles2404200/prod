@@ -23,8 +23,8 @@ ghcr_user: "BennyBach1002"
 ghcr_token: "YOUR_GHCR_PAT"
 
 # NGINX / public host
-staging_domain: "35.153.184.85"
-frontend_domain: "35.153.184.85"   # <-- ADDED so the env template has it
+staging_domain: "34.228.242.76"
+frontend_domain: "34.228.242.76"   # <-- ADDED so the env template has it
 api_rate: "20r/s"
 api_burst: 40
 api_rate_zone_size: "20m"

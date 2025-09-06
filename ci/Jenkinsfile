@@ -65,7 +65,7 @@ pipeline {
 
 stage('Deploy (Compose to single EC2)') {
   environment {
-    CTRL_HOST   = '35.153.184.85'        // <-- your Ansible EC2 public IP
+    CTRL_HOST   = '34.228.242.76'        // <-- your Ansible EC2 public IP
     CTRL_USER   = 'ec2-user'
     REMOTE_WORK = '/home/ec2-user/deploy'
     INVENTORY   = 'inventory.ini'
@@ -75,9 +75,9 @@ stage('Deploy (Compose to single EC2)') {
     BE_IMG      = 'ghcr.io/bennybach1002/rmit-store-backend'
     NGINX_IMG   = 'nginx:1.27-alpine'
 
-    FRONTEND_DOMAIN = '35.153.184.85'    // same IP to serve on http://IP/
+    FRONTEND_DOMAIN = '34.228.242.76'    // same IP to serve on http://IP/
     JWT_SECRET = 'my_secret_string'
-    MONGO_URI  = 'mongodb://localhost:27017/rmit'  // or Atlas URI
+    MONGO_URI  = 'mongodb+srv://RMIT_Store:123RMIT@ac-mr6vgxa-shard-00-00.uvixzgs.mongodb.net/admin?authSource=admin&replicaSet=atlas-gbr5dj-shard-0&retryWrites=true&w=majority&appName=RMITStore'  // or Atlas URI
   }
   steps {
     withCredentials([
@@ -162,7 +162,7 @@ EOF
 /* stage('Deploy (Single EC2, no Nginx/Swarm)') {
   environment {
     // === CHANGE ME ===
-    TARGET_IP   = '35.153.184.85'   // your EC2 public IP (NO http://)
+    TARGET_IP   = '34.228.242.76'   // your EC2 public IP (NO http://)
     TARGET_USER = 'ec2-user'        // usually ec2-user on Amazon Linux
 
     // Images built earlier in the pipeline (or set defaults)
