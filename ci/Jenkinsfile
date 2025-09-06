@@ -153,9 +153,29 @@ stage('Deploy to EC2 (34.227.19.111)') {
 
   } // stages
 
-  post {
-    success { echo "✅ ${env.APP_NAME} ${env.IMAGE_TAG} built & deployed (Ansible). Swarm: ${params.DOCKER_SWARM ? 'ON' : 'OFF'}" }
-    failure { echo "❌ Pipeline failed. Check logs above." }
-    always  { echo "Build URL: ${env.BUILD_URL}" }
+post {
+  success {
+    echo """
+✅ ${env.APP_NAME} deployed successfully
+
+Build:     ${env.BUILD_URL}
+Branch:    ${params.BRANCH_TO_BUILD}
+Tag:       ${env.IMAGE_TAG}
+
+Frontend:  http://34.227.19.111
+API:       http://34.227.19.111:3000
+
+Images:
+  - ${env.FRONTEND_IMAGE}:${env.IMAGE_TAG}
+  - ${env.BACKEND_IMAGE}:${env.IMAGE_TAG}
+"""
   }
+  failure {
+    echo "❌ Pipeline failed. See console log: ${env.BUILD_URL}console"
+  }
+  always {
+    echo "Build URL: ${env.BUILD_URL}"
+  }
+}
+
 }
