@@ -1,9 +1,18 @@
 ---
 # roles/docker/tasks/main.yml
 
-# --- 0) Base packages (avoid curl conflicts on Amazon Linux) ------------------
+# --- sensible defaults if not passed in -e ---
+- name: Set role defaults
+  set_fact:
+    docker_user: "{{ docker_user | default(ansible_user_id) }}"
+    docker_compose_version: "{{ docker_compose_version | default('v2.27.0') }}"
+    docker_cli_plugins_dir: >-
+      {{ docker_cli_plugins_dir
+         | default( (ansible_facts.os_family in ['RedHat','Rocky','AlmaLinux','Amazon'])
+                     | ternary('/usr/libexec/docker/cli-plugins','/usr/lib/docker/cli-plugins') ) }}
 
-- name: Ensure base packages (git, tar)
+# --- base packages (handle Amazon Linux 2023 curl-minimal conflict) ---
+- name: Ensure git & tar are present
   become: true
   package:
     name:
@@ -11,24 +20,33 @@
       - tar
     state: present
 
-# Amazon Linux (incl. AL2023) ships curl-minimal; keep that to avoid conflicts
-- name: Ensure curl present on Amazon Linux (curl-minimal)
+- name: Amazon Linux 2023 | ensure curl-minimal present
   become: true
-  dnf:
+  package:
     name: curl-minimal
     state: present
-  when: ansible_distribution == "Amazon"
+  when:
+    - ansible_facts.distribution == "Amazon"
+    - ansible_facts.distribution_version is search('2023')
 
-# Other distros can use the normal 'curl' package safely
-- name: Ensure curl present on non-Amazon distros
+- name: Amazon Linux 2023 | ensure conflicting curl is absent
+  become: true
+  package:
+    name: curl
+    state: absent
+  when:
+    - ansible_facts.distribution == "Amazon"
+    - ansible_facts.distribution_version is search('2023')
+
+- name: Non-Amazon-2023 | ensure curl present
   become: true
   package:
     name: curl
     state: present
-  when: ansible_distribution != "Amazon"
+  when: not (ansible_facts.distribution == "Amazon"
+             and (ansible_facts.distribution_version is search('2023')))
 
-# --- 1) Docker engine (package preferred; fallback to convenience script) -----
-
+# --- Docker engine (pkg first, convenience script fallback) ---
 - name: Install Docker engine via package if available
   become: true
   package:
@@ -44,8 +62,7 @@
     executable: /bin/bash
   when: docker_pkg is failed
 
-# --- 2) Daemon configuration ---------------------------------------------------
-
+# --- daemon.json (log rotation, cgroup driver, faster pulls) ---
 - name: Write /etc/docker/daemon.json
   become: true
   copy:
@@ -61,8 +78,7 @@
       }
   notify: Restart docker
 
-# --- 3) Enable/Start Docker; add user to docker group -------------------------
-
+# --- enable/start & group membership ---
 - name: Enable & start Docker
   become: true
   service:
@@ -73,12 +89,11 @@
 - name: Add user to docker group
   become: true
   user:
-    name: "{{ docker_user | default(ansible_user_id) }}"
+    name: "{{ docker_user }}"
     groups: docker
     append: true
 
-# --- 4) Docker Compose v2 (pkg if possible; otherwise plugin binary) ----------
-
+# --- Docker Compose v2 (pkg if possible; otherwise download plugin) ---
 - name: Install docker compose plugin via package if present
   become: true
   package:
@@ -90,27 +105,30 @@
 - name: Ensure CLI plugins dir exists
   become: true
   file:
-    path: "{{ docker_cli_plugins_dir | default('/usr/libexec/docker/cli-plugins') }}"
+    path: "{{ docker_cli_plugins_dir }}"
     state: directory
     mode: "0755"
 
 - name: Install docker compose v2 plugin (fallback binary)
   become: true
   get_url:
-    url: "https://github.com/docker/compose/releases/download/{{ docker_compose_version | default('v2.27.0') }}/docker-compose-linux-x86_64"
-    dest: "{{ docker_cli_plugins_dir | default('/usr/libexec/docker/cli-plugins') }}/docker-compose"
+    url: "https://github.com/docker/compose/releases/download/{{ docker_compose_version }}/docker-compose-linux-x86_64"
+    dest: "{{ docker_cli_plugins_dir }}/docker-compose"
     mode: "0755"
   when: compose_pkg is failed
 
 - name: Ensure legacy docker-compose symlink (optional)
   become: true
   file:
-    src: "{{ docker_cli_plugins_dir | default('/usr/libexec/docker/cli-plugins') }}/docker-compose"
+    src: "{{ docker_cli_plugins_dir }}/docker-compose"
     dest: /usr/local/bin/docker-compose
     state: link
 
-# --- 5) Verify ----------------------------------------------------------------
+# --- apply any pending handler notifications before verify ---
+- name: Apply pending handler notifications now
+  meta: flush_handlers
 
+# --- verify ---
 - name: Show docker versions
   become: true
   shell: |
