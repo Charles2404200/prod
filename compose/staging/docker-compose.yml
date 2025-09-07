@@ -21,7 +21,7 @@ version: "3.9"
 
 services:
   backend:
-    build:
+    #build:
       #this one to build locally
       # context: .
       # context: ../../  # This goes up two directories to the project root
@@ -41,7 +41,7 @@ services:
       - mongo
 
   frontend:
-    build:
+    #build:
       #this one to build locally
       # context: .
       # context: ../../  # This goes up two directories to the project root
