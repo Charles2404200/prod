@@ -13,3 +13,6 @@ deploy docker swarm:
 docker stack deploy -c docker-stack.yml mystack
 docker stack services mystack
 docker service logs mystack_backend
+
+check docker images:
+docker images | egrep 'rmit-store-(frontend|backend)'
