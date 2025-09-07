@@ -6,7 +6,7 @@ services:
     #context:
     #dockerfile:
     #this one to pull from ghrc
-    image: ghcr.io/APotato4325/rmit-store-backend:latest
+    image: ghcr.io/apotato4325/rmit-store-backend:latest
     ports:
       - "5000:5000"
     environment:
@@ -25,7 +25,7 @@ services:
     #context:
     #dockerfile:
     #this one to pull from ghrc
-    image: ghcr.io/APotato4325/rmit-store-frontend:latest
+    image: ghcr.io/apotato4325/rmit-store-frontend:latest
     ports:
       - "3000:80"
     environment:
