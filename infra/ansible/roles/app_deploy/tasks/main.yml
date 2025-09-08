@@ -38,39 +38,45 @@
     seconds: 5
 
 # Backend listener (container) is published to 13000 on the host
-- name: Wait for backend port to open (local check)
-  ansible.builtin.wait_for:
-    host: 127.0.0.1
-    port: "{{ backend_published_port | default(13000) }}"
-    delay: 2
-    timeout: 180
-  when: not (skip_backend_wait | default(true))
-
-# Public entry via NGINX on port 80 → needed for http://54.163.245.207/
-- name: Wait for NGINX port 80 to open
-  ansible.builtin.wait_for:
-    host: 127.0.0.1
-    port: 80
-    state: started
-    timeout: 120
-
-- name: Show Swarm services
-  ansible.builtin.shell: docker service ls
-  register: _svc
+- name: Show listening sockets for FE/BE on host
+  ansible.builtin.shell: ss -lntp | egrep ':(18080|13000)' || true
+  register: _sockets
   changed_when: false
 
-- name: Print Swarm services
+- name: Print listening sockets
   ansible.builtin.debug:
-    var: _svc.stdout_lines
+    var: _sockets.stdout_lines
 
-- name: Quick local HTTP check (best-effort)
+# Hit upstreams directly (bypasses nginx)
+- name: Curl FE upstream directly
+  ansible.builtin.shell: curl -si http://127.0.0.1:{{ frontend_published | default(18080) }}/ || true
+  register: _curl_fe
+  changed_when: false
+
+- name: Curl BE upstream directly (root and /api/health)
   ansible.builtin.shell: |
-    set -o pipefail
-    curl -sS -i http://54.163.245.207/ | head -n 20
-  register: _curl
+    set -e
+    echo '--- / (root) ---'
+    curl -si http://127.0.0.1:{{ backend_published | default(13000) }}/ || true
+    echo '--- /health ---'
+    curl -si http://127.0.0.1:{{ backend_published | default(13000) }}/health || true
+    echo '--- /api/health ---'
+    curl -si http://127.0.0.1:{{ backend_published | default(13000) }}/api/health || true
+  register: _curl_be
   changed_when: false
-  failed_when: false
 
-- name: Show HTTP check output
+- name: Show upstream curl results
   ansible.builtin.debug:
-    var: _curl.stdout_lines
+    msg:
+      - "FE direct:\n{{ _curl_fe.stdout }}"
+      - "BE direct:\n{{ _curl_be.stdout }}"
+
+# Then test through nginx (what you already had)
+- name: Quick local HTTP check through nginx (best-effort)
+  ansible.builtin.shell: curl -si http://127.0.0.1/ || true
+  register: _curl_nginx
+  changed_when: false
+
+- name: Show HTTP check via nginx
+  ansible.builtin.debug:
+    var: _curl_nginx.stdout_lines

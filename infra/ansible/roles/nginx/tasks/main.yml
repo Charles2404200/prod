@@ -66,3 +66,22 @@
     name: nginx
     state: started
     enabled: true
+
+- name: Check SELinux status
+  ansible.builtin.setup:
+    filter: ansible_selinux
+  changed_when: false
+
+- name: Allow nginx outbound network connects (SELinux boolean)
+  ansible.posix.seboolean:
+    name: httpd_can_network_connect
+    state: true
+    persistent: true
+  when: ansible_facts.selinux.status | default('disabled') == 'enabled'
+
+# Fallback if ansible.posix isn't available
+- name: Fallback setsebool for httpd_can_network_connect
+  ansible.builtin.command: setsebool -P httpd_can_network_connect on
+  when: ansible_facts.selinux.status | default('disabled') == 'enabled'
+  changed_when: true
+  failed_when: false
