@@ -116,14 +116,3 @@
   args:
     executable: /bin/bash
   changed_when: false
-
-# 6) Show docker versions
-- name: Show docker versions
-  ansible.builtin.shell: |
-    docker --version && docker compose version
-  register: docker_versions
-  changed_when: false
-
-- name: Print docker versions
-  ansible.builtin.debug:
-    var: docker_versions.stdout_lines
