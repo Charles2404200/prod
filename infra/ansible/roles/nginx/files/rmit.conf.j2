@@ -8,7 +8,7 @@ server {
   index index.html;
 
   location /api/ {
-    proxy_pass http://127.0.0.1:{{ backend_staging_port }}/api/;
+    proxy_pass http://http://54.196.128.5/:{{ backend_staging_port }}/api/;
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
   }
@@ -20,8 +20,8 @@ server {
 {% else %}
 # PROD Blue/Green
 upstream rmit_backend {
-  server 127.0.0.1:{{ backend_blue_port }}  {% if color == 'blue' %}weight=10{% else %}weight=1{% endif %};
-  server 127.0.0.1:{{ backend_green_port }} {% if color == 'green' %}weight=10{% else %}weight=1{% endif %};
+  server http://54.196.128.5/:{{ backend_blue_port }}  {% if color == 'blue' %}weight=10{% else %}weight=1{% endif %};
+  server http://54.196.128.5/:{{ backend_green_port }} {% if color == 'green' %}weight=10{% else %}weight=1{% endif %};
 }
 
 server {

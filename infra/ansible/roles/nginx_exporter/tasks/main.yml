@@ -5,5 +5,5 @@
     image: nginx/nginx-prometheus-exporter:latest
     state: started
     restart_policy: always
-    command: ["-nginx.scrape-uri", "http://127.0.0.1:{{ frontend_http_port }}/stub_status"]
+    command: ["-nginx.scrape-uri", "http://54.196.128.5:{{ frontend_http_port }}/stub_status"]
     network_mode: host

@@ -4,26 +4,20 @@
   roles:
     - docker
 
-- hosts: staging:prod
+- hosts: lb
   become: true
   roles:
+    - nginx
     - node_exporter
-    - cadvisor
     - nginx_exporter
+
+- hosts: staging
+  become: true
+  roles:
+    - cadvisor
+    - { role: app_deploy }
 
 - hosts: monitoring
   become: true
   roles:
     - monitoring_stack
-
-- hosts: staging
-  become: true
-  roles:
-    - { role: nginx }
-    - { role: app_deploy }
-
-- hosts: prod
-  become: true
-  roles:
-    - { role: nginx }
-    - { role: app_deploy }
