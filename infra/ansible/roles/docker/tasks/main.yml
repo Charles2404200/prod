@@ -1,30 +1,56 @@
 ---
-- name: Ensure base packages
-  package:
+# Detect Amazon Linux reliably (covers "Amazon" and "Amazon Linux")
+- name: Detect Amazon Linux
+  ansible.builtin.set_fact:
+    is_amazon_linux: "{{ (ansible_facts.distribution | default('') | lower) is search('amazon') }}"
+
+# --- Base packages (handle AL2023 curl-minimal conflict) ---
+- name: DNF clean metadata on Amazon Linux
+  ansible.builtin.command: dnf -y clean all
+  when: is_amazon_linux
+  changed_when: false
+
+- name: Install base packages on Amazon Linux (use curl-minimal)
+  ansible.builtin.dnf:
+    name:
+      - curl-minimal
+      - git
+      - tar
+      - python3-pip
+    state: present
+    allowerasing: true
+  when: is_amazon_linux
+
+- name: Install base packages on non-Amazon distros (use full curl)
+  ansible.builtin.package:
     name:
       - curl
       - git
       - tar
       - python3-pip
     state: present
+  when: not is_amazon_linux
 
 # 1) Docker engine (pkg first, fallback to convenience script)
 - name: Install Docker engine via package if available
-  package:
+  ansible.builtin.package:
     name: docker
     state: present
   register: docker_pkg
   failed_when: false
 
 - name: Install Docker via convenience script (fallback)
-  shell: curl -fsSL https://get.docker.com | sh
+  ansible.builtin.shell: |
+    set -e
+    # curl-minimal is fine for this
+    curl -fsSL https://get.docker.com | sh
   args:
     executable: /bin/bash
   when: docker_pkg is failed
 
 # 2) Daemon config
 - name: Write /etc/docker/daemon.json
-  copy:
+  ansible.builtin.copy:
     dest: /etc/docker/daemon.json
     mode: "0644"
     content: |
@@ -35,98 +61,75 @@
         "max-concurrent-downloads": 10,
         "max-concurrent-uploads": 10
       }
-  notify: restart docker   # notify handler defined in handlers/main.yml
+  notify: Restart docker
 
 # 3) Enable/Start Docker, grant user
 - name: Enable & start Docker
-  service:
+  ansible.builtin.service:
     name: docker
     state: started
     enabled: true
 
-- name: Add jenkins user to docker group (if exists)
-  user:
-    name: jenkins
+- name: Add user to docker group
+  ansible.builtin.user:
+    name: "{{ docker_user | default('ec2-user') }}"
     groups: docker
     append: true
-  ignore_errors: true
 
 # 4) Docker Compose v2 (pkg if possible; otherwise plugin binary)
 - name: Install docker compose plugin via package if present
-  package:
+  ansible.builtin.package:
     name: docker-compose-plugin
     state: present
   register: compose_pkg
   failed_when: false
 
 - name: Ensure CLI plugins dir exists
-  file:
-    path: "/usr/libexec/docker/cli-plugins"
+  ansible.builtin.file:
+    path: "{{ docker_cli_plugins_dir | default('/usr/libexec/docker/cli-plugins') }}"
     state: directory
     mode: "0755"
 
 - name: Install docker compose v2 plugin (fallback binary)
-  get_url:
-    url: "https://github.com/docker/compose/releases/download/v2.27.0/docker-compose-linux-x86_64"
-    dest: "/usr/libexec/docker/cli-plugins/docker-compose"
+  ansible.builtin.get_url:
+    url: "https://github.com/docker/compose/releases/download/{{ docker_compose_version | default('v2.27.0') }}/docker-compose-linux-x86_64"
+    dest: "{{ docker_cli_plugins_dir | default('/usr/libexec/docker/cli-plugins') }}/docker-compose"
     mode: "0755"
   when: compose_pkg is failed
-  ignore_errors: true
 
 - name: Ensure legacy docker-compose symlink (optional)
-  file:
-    src: "/usr/libexec/docker/cli-plugins/docker-compose"
+  ansible.builtin.file:
+    src: "{{ docker_cli_plugins_dir | default('/usr/libexec/docker/cli-plugins') }}/docker-compose"
     dest: /usr/local/bin/docker-compose
     state: link
 
-# 5) Verify versions
+# 5) (Optional) Init swarm and overlay network on localhost/manager
+- name: Init swarm (idempotent)
+  ansible.builtin.shell: |
+    set -e
+    if ! docker info 2>/dev/null | grep -q 'Swarm: active'; then
+      docker swarm init --advertise-addr $(hostname -I | awk '{print $1}')
+    fi
+  args:
+    executable: /bin/bash
+  changed_when: false
+
+- name: Create overlay network (idempotent)
+  ansible.builtin.shell: |
+    set -e
+    docker network ls --format '{{"{{.Name}}"}}' | grep -qx 'rmit_net' || \
+      docker network create --driver overlay rmit_net
+  args:
+    executable: /bin/bash
+  changed_when: false
+
+# 6) Show docker versions
 - name: Show docker versions
-  shell: |
+  ansible.builtin.shell: |
     docker --version && docker compose version
   register: docker_versions
   changed_when: false
 
 - name: Print docker versions
-  debug:
+  ansible.builtin.debug:
     var: docker_versions.stdout_lines
-
-# 6) Init swarm + overlay network
-- name: Init swarm (idempotent)
-  shell: |
-    docker info | grep -q 'Swarm: active' || \
-    docker swarm init --advertise-addr "$(hostname -I | awk '{print $1}')"
-  args:
-    executable: /bin/bash
-    warn: false
-  register: swarm_init
-  changed_when: swarm_init.rc == 0
-
-- name: Create overlay network if missing
-  shell: |
-    docker network inspect rmit_net >/dev/null 2>&1 || \
-    docker network create --driver overlay rmit_net
-  args:
-    executable: /bin/bash
-    warn: false
-
-# --- Base packages (handle Amazon Linux 2023 curl-minimal) ---
-- name: Install base packages on Amazon Linux (AL2023)
-  dnf:
-    name:
-      - curl-minimal
-      - git
-      - tar
-      - python3-pip
-    state: present
-    allowerasing: true
-  when: ansible_facts.distribution == "Amazon"
-
-- name: Install base packages on non-Amazon distros
-  package:
-    name:
-      - curl
-      - git
-      - tar
-      - python3-pip
-    state: present
-  when: ansible_facts.distribution != "Amazon"
