@@ -10,7 +10,7 @@ server {
 
   # Frontend at /
   location / {
-    proxy_pass http://127.0.0.1:{{ frontend_published | default(18080) }};
+    proxy_pass http://127.0.0.1:{{ frontend_published | default(8080) }};
     proxy_http_version 1.1;
     proxy_set_header Host              $host;
     proxy_set_header X-Forwarded-Host  $host;
@@ -23,7 +23,7 @@ server {
   location ~* \.(?:js|css|png|jpg|jpeg|gif|ico|svg|woff2?)$ {
     expires 7d;
     add_header Cache-Control "public, max-age=604800, immutable";
-    proxy_pass http://127.0.0.1:{{ frontend_published | default(18080) }};
+    proxy_pass http://127.0.0.1:{{ frontend_published | default(8080) }};
     proxy_http_version 1.1;
     proxy_set_header Host              $host;
     proxy_set_header X-Forwarded-Proto $scheme;
@@ -31,10 +31,10 @@ server {
     proxy_read_timeout 60s;
   }
 
-  # Backend API under /api -> forwards to BE published port (3000 in-container)
+  # Backend API under /api -> forwards to BE published port (here: 3000)
   location /api/ {
     limit_req zone=api_rate burst={{ api_burst | default(20) }} nodelay;
-    proxy_pass http://127.0.0.1:{{ backend_published | default(13000) }}/;
+    proxy_pass http://127.0.0.1:{{ backend_published | default(3000) }}/;
     proxy_http_version 1.1;
     proxy_set_header Host              $host;
     proxy_set_header X-Real-IP         $remote_addr;
