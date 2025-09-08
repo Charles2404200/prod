@@ -58,16 +58,22 @@
 
 # 5) Init Swarm + overlay network
 - name: Init swarm (idempotent)
-  shell: docker info | grep -q 'Swarm: active' || docker swarm init --advertise-addr $(hostname -I | awk '{print $1}')
-  args: { warn: false }
+  shell: |
+    docker info | grep -q 'Swarm: active' || \
+    docker swarm init --advertise-addr "$(hostname -I | awk '{print $1}')"
+  args:
+    executable: /bin/bash
+    warn: false
   register: swarm_init
   changed_when: swarm_init.rc == 0
 
 - name: Create overlay network if missing
   shell: |
-    docker network ls --format '{{"{{.Name}}"}}' | grep -qx rmit_net || \
+    docker network inspect rmit_net >/dev/null 2>&1 || \
     docker network create --driver overlay rmit_net
-  args: { warn: false }
+  args:
+    executable: /bin/bash
+    warn: false
 
 # Handlers
 - name: Restart docker
