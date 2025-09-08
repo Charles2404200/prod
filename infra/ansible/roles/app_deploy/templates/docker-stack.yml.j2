@@ -1,56 +1,20 @@
-version: "3.8"
-
-networks:
-  rmit_net:
-    external: true
-
-volumes:
-  dbdata:
-
-services:
-  db:
-    image: "{{ db_image | default('mongo:7') }}"
-    command: ["--bind_ip_all"]
-    volumes:
-      - dbdata:/data/db
-    networks:
-      - rmit_net
-    deploy:
-      restart_policy:
-        condition: on-failure
-      placement:
-        constraints: [ "node.role == manager" ]
-
+# docker-stack.yml.j2 (only the env blocks shown)
   backend:
     image: "{{ backend_image }}:{{ image_tag }}"
     environment:
+      HOST: "0.0.0.0"      # <-- add this
       PORT: "3000"
-      # Backend binds at root; NGINX proxies /api → backend (no need for /api inside the app)
       MONGO_URI: "mongodb://db:27017/{{ mongo_db_name | default('rmit_database') }}"
       JWT_SECRET: "{{ jwt_secret | default('change_me_in_jenkins_or_group_vars') }}"
       CLIENT_URL: "http://localhost"
-    depends_on:
-      - db
     ports:
-      # Keep these published so host NGINX (running on the EC2) can reach them on 127.0.0.1
       - "{{ backend_published | default(13000) }}:3000"
-    networks:
-      - rmit_net
-    deploy:
-      restart_policy:
-        condition: on-failure
 
   frontend:
     image: "{{ frontend_image }}:{{ image_tag }}"
     environment:
-      # Make the browser call the same origin — let NGINX proxy /api to the backend
-      API_URL: "/api"
-    depends_on:
-      - backend
+      HOST: "0.0.0.0"      # <-- add this
+      PORT: "8080"         # only if your FE server reads it
+      API_URL: "/api"      # keep same-origin via NGINX
     ports:
       - "{{ frontend_published | default(18080) }}:8080"
-    networks:
-      - rmit_net
-    deploy:
-      restart_policy:
-        condition: on-failure
