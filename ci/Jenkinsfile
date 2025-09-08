@@ -84,27 +84,62 @@ pipeline {
       }
     }
 
-    stage('Deploy with Ansible (Swarm + NGINX on Jenkins host)') {
-      steps {
-        dir('ws') {
-          sh '''#!/usr/bin/env bash
+stage('Deploy with Ansible (Swarm + NGINX on Jenkins host)') {
+  steps {
+    withCredentials([
+      usernamePassword(
+        credentialsId: 'GHCR_USER',          // GitHub PAT in Jenkins creds
+        usernameVariable: 'GH_USER',
+        passwordVariable: 'GH_TOKEN'
+      )
+    ]) {
+      dir('ws') {
+        sh '''#!/usr/bin/env bash
 set -euo pipefail
 
 INVENTORY="${INVENTORY:-infra/ansible/inventory.ini}"
 PLAYBOOK="${PLAYBOOK:-infra/ansible/site.yml}"
 
-# Install Ansible locally if missing
+# Show where we are
+echo "Workspace: $(pwd)"
+echo "Inventory: ${INVENTORY}"
+echo "Playbook : ${PLAYBOOK}"
+
+# Ensure PATH includes user pip bin (for ansible installed with --user)
+export PATH="$HOME/.local/bin:$PATH"
+
+# Ensure Ansible locally
 if ! command -v ansible-playbook >/dev/null 2>&1; then
   if command -v yum >/dev/null 2>&1; then
-    sudo yum install -y ansible python3-pip || true
+    sudo yum install -y python3-pip || true
+  elif command -v apt-get >/dev/null 2>&1; then
+    sudo apt-get update -y && sudo apt-get install -y python3-pip || true
   fi
   python3 -m pip install --user "ansible>=9,<10"
-  export PATH="$HOME/.local/bin:$PATH"
+fi
+
+# Docker login to GHCR on the host (so Swarm can pull images)
+echo "$GH_TOKEN" | docker login ghcr.io -u "$GH_USER" --password-stdin
+
+# Optional: collections (if you add requirements.yml later)
+if [[ -f infra/ansible/requirements.yml ]]; then
+  ansible-galaxy install -r infra/ansible/requirements.yml
+fi
+
+# Print first lines of inventory for sanity
+if [[ -f "${INVENTORY}" ]]; then
+  echo "----- INVENTORY HEAD -----"
+  sed -n '1,120p' "${INVENTORY}"
+  echo "--------------------------"
+else
+  echo "ERROR: Inventory not found at ${INVENTORY}" >&2
+  exit 2
 fi
 
 export ANSIBLE_STDOUT_CALLBACK=yaml
 export ANSIBLE_HOST_KEY_CHECKING=False
 
+# Run playbook against localhost (deploy on Jenkins EC2)
 ansible-playbook -i "${INVENTORY}" "${PLAYBOOK}" \
   -l "localhost" \
   -e "frontend_image=${FRONTEND_IMAGE}" \
@@ -112,13 +147,16 @@ ansible-playbook -i "${INVENTORY}" "${PLAYBOOK}" \
   -e "db_image=${DB_IMAGE}" \
   -e "image_tag=${IMAGE_TAG}" \
   -e "app_name=${APP_NAME}" \
-  -e "env=staging"
+  -e "env=staging" \
+  -e "ghcr_user=${GH_USER}" \
+  -e "ghcr_token=${GH_TOKEN}"
 
 echo "✓ Swarm deploy finished."
 '''
-        }
       }
     }
+  }
+}
   }
 
   post {
