@@ -38,17 +38,17 @@
     seconds: 5
 
 # Backend listener (container) is published to 13000 on the host
-- name: Wait for backend port 13000 to open
+- name: Wait for backend port to open (local check)
   ansible.builtin.wait_for:
-    host: 54.163.245.207
-    port: 13000
-    state: started
+    host: 127.0.0.1
+    port: "{{ backend_published_port | default(13000) }}"
+    delay: 2
     timeout: 180
 
 # Public entry via NGINX on port 80 → needed for http://54.163.245.207/
 - name: Wait for NGINX port 80 to open
   ansible.builtin.wait_for:
-    host: 54.163.245.207
+    host: 127.0.0.1
     port: 80
     state: started
     timeout: 120
