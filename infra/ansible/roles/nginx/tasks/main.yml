@@ -1,9 +1,14 @@
 ---
 - name: Install NGINX
-  package: { name: nginx, state: present }
+  package:
+    name: nginx
+    state: present
 
 - name: Ensure conf.d exists
-  file: { path: /etc/nginx/conf.d, state: directory, mode: "0755" }
+  file:
+    path: /etc/nginx/conf.d
+    state: directory
+    mode: "0755"
 
 # Global nginx.conf (basic sane defaults)
 - name: Deploy nginx.conf
@@ -35,7 +40,7 @@
 
         include /etc/nginx/conf.d/*.conf;
       }
-  notify: Reload nginx
+  notify: reload nginx
 
 # Site: listen on 80, proxy to FE publish on 18080
 - name: Deploy site config (root on :80 → FE :18080)
@@ -54,12 +59,10 @@
           proxy_pass http://127.0.0.1:18080;
         }
       }
-  notify: Reload nginx
+  notify: reload nginx
 
 - name: Enable & start NGINX
-  service: { name: nginx, state: started, enabled: true }
-
-# Handler
-- name: Reload nginx
-  listen: Reload nginx
-  service: { name: nginx, state: reloaded }
+  service:
+    name: nginx
+    state: started
+    enabled: true
