@@ -1,6 +1,6 @@
 pipeline {
   agent any
-  options { skipDefaultCheckout(true); timestamps() }
+  options { skipDefaultCheckout(true) }
 
   parameters {
     string(name: 'GHCR_NAMESPACE',  defaultValue: 'BennyBach1002', description: 'GitHub user/org (lowercase for Docker)')
