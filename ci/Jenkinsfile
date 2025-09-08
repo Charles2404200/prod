@@ -268,7 +268,7 @@ pipeline {
                             ssh -o StrictHostKeyChecking=no ec2-user@${DOCKER_EC2_IP} '
                                 echo "$GH_TOKEN" | docker login ghcr.io -u ${GHCR_USER} --password-stdin || true
 
-                                cd /home/ec2-user/staging || exit 1
+                                cd /home/ec2-user/prod/compose/staging || { echo "stack file dir missing"; exit 1; }
 
                                 docker stack deploy -c docker-stack.yml mystack --with-registry-auth
 
