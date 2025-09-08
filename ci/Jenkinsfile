@@ -86,7 +86,7 @@ stage('Deploy with Ansible (Swarm + NGINX)') {
         passwordVariable: 'GH_TOKEN'
       ),
       sshUserPrivateKey(
-        credentialsId: 'ansible-ec2-key',    // <-- SSH key for the target hosts
+        credentialsId: 'jenkins-ec2-key',    // <-- SSH key for the target hosts
         keyFileVariable: 'ANSIBLE_KEY',
         usernameVariable: 'ANSIBLE_SSH_USER' // usually ec2-user
       )
