@@ -148,8 +148,8 @@ ansible-playbook -i "${INVENTORY}" "${PLAYBOOK}" \
   -e "env=staging" \
   -e "ghcr_user=${GH_USER}" \
   -e "ghcr_token=${GH_TOKEN}" \
-  -e "frontend_published=8080" \
-  -e "backend_published=3000"
+  -e "frontend_published=18080" \
+  -e "backend_published=13000"
 
 echo "✓ Swarm deploy finished."
 '''
