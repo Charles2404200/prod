@@ -44,6 +44,7 @@
     port: "{{ backend_published_port | default(13000) }}"
     delay: 2
     timeout: 180
+  when: not (skip_backend_wait | default(true))
 
 # Public entry via NGINX on port 80 → needed for http://54.163.245.207/
 - name: Wait for NGINX port 80 to open
