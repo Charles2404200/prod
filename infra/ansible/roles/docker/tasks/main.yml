@@ -108,3 +108,25 @@
   args:
     executable: /bin/bash
     warn: false
+
+# --- Base packages (handle Amazon Linux 2023 curl-minimal) ---
+- name: Install base packages on Amazon Linux (AL2023)
+  dnf:
+    name:
+      - curl-minimal
+      - git
+      - tar
+      - python3-pip
+    state: present
+    allowerasing: true
+  when: ansible_facts.distribution == "Amazon"
+
+- name: Install base packages on non-Amazon distros
+  package:
+    name:
+      - curl
+      - git
+      - tar
+      - python3-pip
+    state: present
+  when: ansible_facts.distribution != "Amazon"
