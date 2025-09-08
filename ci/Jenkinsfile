@@ -84,13 +84,18 @@ pipeline {
       }
     }
 
-stage('Deploy with Ansible (Swarm + NGINX on Jenkins host)') {
+stage('Deploy with Ansible (Swarm + NGINX on EC2 as ec2-user)') {
   steps {
     withCredentials([
       usernamePassword(
         credentialsId: 'GHCR_USER',          // GitHub PAT in Jenkins creds
         usernameVariable: 'GH_USER',
         passwordVariable: 'GH_TOKEN'
+      ),
+      sshUserPrivateKey(
+        credentialsId: 'jenkins-ec2-key',    // your EC2 private key in Jenkins
+        keyFileVariable: 'ANSIBLE_KEY',
+        usernameVariable: 'ANSIBLE_SSH_USER' // usually 'ec2-user' on Amazon Linux
       )
     ]) {
       dir('ws') {
@@ -100,15 +105,13 @@ set -euo pipefail
 INVENTORY="${INVENTORY:-infra/ansible/inventory.ini}"
 PLAYBOOK="${PLAYBOOK:-infra/ansible/site.yml}"
 
-# Show where we are
 echo "Workspace: $(pwd)"
 echo "Inventory: ${INVENTORY}"
 echo "Playbook : ${PLAYBOOK}"
 
-# Ensure PATH includes user pip bin (for ansible installed with --user)
 export PATH="$HOME/.local/bin:$PATH"
 
-# Ensure Ansible locally
+# Ensure Ansible
 if ! command -v ansible-playbook >/dev/null 2>&1; then
   if command -v yum >/dev/null 2>&1; then
     sudo yum install -y python3-pip || true
@@ -118,30 +121,17 @@ if ! command -v ansible-playbook >/dev/null 2>&1; then
   python3 -m pip install --user "ansible>=9,<10"
 fi
 
-# Docker login to GHCR on the host (so Swarm can pull images)
+# Host GHCR login (so Swarm can pull private images)
 echo "$GH_TOKEN" | docker login ghcr.io -u "$GH_USER" --password-stdin
-
-# Optional: collections (if you add requirements.yml later)
-if [[ -f infra/ansible/requirements.yml ]]; then
-  ansible-galaxy install -r infra/ansible/requirements.yml
-fi
-
-# Print first lines of inventory for sanity
-if [[ -f "${INVENTORY}" ]]; then
-  echo "----- INVENTORY HEAD -----"
-  sed -n '1,120p' "${INVENTORY}"
-  echo "--------------------------"
-else
-  echo "ERROR: Inventory not found at ${INVENTORY}" >&2
-  exit 2
-fi
 
 export ANSIBLE_STDOUT_CALLBACK=yaml
 export ANSIBLE_HOST_KEY_CHECKING=False
 
-# Run playbook against localhost (deploy on Jenkins EC2)
+# Run playbook over SSH to 127.0.0.1 as ec2-user (passwordless sudo)
 ansible-playbook -i "${INVENTORY}" "${PLAYBOOK}" \
-  -l "localhost" \
+  -l "build" \
+  --private-key "${ANSIBLE_KEY}" \
+  -e ansible_user="${ANSIBLE_SSH_USER}" \
   -e "frontend_image=${FRONTEND_IMAGE}" \
   -e "backend_image=${BACKEND_IMAGE}" \
   -e "db_image=${DB_IMAGE}" \

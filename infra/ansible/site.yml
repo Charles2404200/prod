@@ -1,5 +1,5 @@
 ---
-- hosts: localhost
+- hosts: build
   become: true
   vars:
     app_name: "{{ app_name | default('rmit-store') }}"
