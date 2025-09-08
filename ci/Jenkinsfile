@@ -84,18 +84,18 @@ pipeline {
       }
     }
 
-stage('Deploy with Ansible (Swarm + NGINX on EC2 as ec2-user)') {
+stage('Deploy with Ansible (Swarm + NGINX on EC2 via SSH)') {
   steps {
     withCredentials([
       usernamePassword(
-        credentialsId: 'GHCR_USER',          // GitHub PAT in Jenkins creds
+        credentialsId: 'GHCR_USER',
         usernameVariable: 'GH_USER',
         passwordVariable: 'GH_TOKEN'
       ),
       sshUserPrivateKey(
-        credentialsId: 'jenkins-ec2-key',    // your EC2 private key in Jenkins
+        credentialsId: 'jenkins-ec2-key', // <-- your screenshot credential
         keyFileVariable: 'ANSIBLE_KEY',
-        usernameVariable: 'ANSIBLE_SSH_USER' // usually 'ec2-user' on Amazon Linux
+        usernameVariable: 'CREDS_USER'     // we won't use this username
       )
     ]) {
       dir('ws') {
@@ -105,9 +105,13 @@ set -euo pipefail
 INVENTORY="${INVENTORY:-infra/ansible/inventory.ini}"
 PLAYBOOK="${PLAYBOOK:-infra/ansible/site.yml}"
 
+# Force the real EC2 SSH user. Change to 'ubuntu' if your AMI is Ubuntu.
+SSH_USER="ec2-user"
+
 echo "Workspace: $(pwd)"
 echo "Inventory: ${INVENTORY}"
 echo "Playbook : ${PLAYBOOK}"
+echo "Using SSH user: ${SSH_USER}"
 
 export PATH="$HOME/.local/bin:$PATH"
 
@@ -121,17 +125,22 @@ if ! command -v ansible-playbook >/dev/null 2>&1; then
   python3 -m pip install --user "ansible>=9,<10"
 fi
 
-# Host GHCR login (so Swarm can pull private images)
+# Preflight: SSH to localhost with the key as the right user
+echo "Preflight SSH → ${SSH_USER}@127.0.0.1"
+ssh -i "$ANSIBLE_KEY" -o StrictHostKeyChecking=no -o BatchMode=yes \
+    "${SSH_USER}@127.0.0.1" 'echo "SSH ok: $(whoami) on $(hostname)"'
+
+# Login GHCR so the host can pull private images
 echo "$GH_TOKEN" | docker login ghcr.io -u "$GH_USER" --password-stdin
 
 export ANSIBLE_STDOUT_CALLBACK=yaml
 export ANSIBLE_HOST_KEY_CHECKING=False
 
-# Run playbook over SSH to 127.0.0.1 as ec2-user (passwordless sudo)
+# Run playbook over SSH to the same box
 ansible-playbook -i "${INVENTORY}" "${PLAYBOOK}" \
-  -l "build" \
+  -l build \
   --private-key "${ANSIBLE_KEY}" \
-  -e ansible_user="${ANSIBLE_SSH_USER}" \
+  -u "${SSH_USER}" \
   -e "frontend_image=${FRONTEND_IMAGE}" \
   -e "backend_image=${BACKEND_IMAGE}" \
   -e "db_image=${DB_IMAGE}" \
