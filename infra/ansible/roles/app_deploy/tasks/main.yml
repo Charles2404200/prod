@@ -38,37 +38,36 @@
     port: 13000
     timeout: 120
 
-# Probe backend health on common paths, succeed when any returns 200
-- name: Probe backend health on common paths until one returns 200
+# Probe backend health (tries /health then /api/health) and retry until one returns 200
+- name: Probe backend health until one path returns 200
   vars:
     paths:
       - "{{ backend_health_path | default('/health') }}"
       - "/api/health"
-  block:
-    - name: Try each candidate path
-      ansible.builtin.uri:
-        url: "http://127.0.0.1:13000{{ item }}"
-        status_code: 200
-        return_content: yes
-      register: health_checks
-      failed_when: false
-      loop: "{{ paths }}"
-
-    - name: Pick the first 200 result (if any)
-      ansible.builtin.set_fact:
-        backend_health_result: >-
-          {{ (health_checks.results
-              | selectattr('status','defined')
-              | selectattr('status','equalto',200)
-              | list | first) | default({}) }}
-
-    - name: Fail if none succeeded
-      ansible.builtin.fail:
-        msg: >-
-          Backend health failed. Tried: {{ paths }}.
-          Statuses: {{ health_checks.results | map(attribute='status') | list }}
-          Bodies: {{ health_checks.results | map(attribute='content') | list }}
-      when: backend_health_result == {}
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:13000{{ item }}"
+    status_code: 200
+    return_content: yes
+  register: _health
+  failed_when: false
+  loop: "{{ paths }}"
+  until: >
+    (_health.results | default([]))
+    | selectattr('status','defined')
+    | selectattr('status','equalto',200)
+    | list | length > 0
   retries: 30
   delay: 2
-  until: backend_health_result != {}
+
+- name: Fail with details if backend never became healthy
+  ansible.builtin.assert:
+    that:
+      - (_health.results | default([]))
+        | selectattr('status','defined')
+        | selectattr('status','equalto',200)
+        | list | length > 0
+    fail_msg: >-
+      Backend health failed. Tried: {{ paths }}.
+      Statuses: {{ _health.results | map(attribute='status') | list }}
+      Bodies: {{ _health.results | map(attribute='content') | list }}
+
