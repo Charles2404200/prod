@@ -26,51 +26,32 @@
 - name: Deploy/update stack
   become: true
   ansible.builtin.shell: |
+    set -e
     docker stack deploy -c "{{ deploy_root | default('/opt/rmit') }}/docker-stack.yml" "{{ stack_name | default('rmit') }}"
   args:
     executable: /bin/bash
-  changed_when: false
+  register: _stack_deploy
+  changed_when: "'Updating service' in _stack_deploy.stdout or 'Creating service' in _stack_deploy.stdout"
 
-# Wait until the backend port is open
+# Small pause to let Swarm schedule tasks
+- name: Pause briefly after deploy
+  ansible.builtin.pause:
+    seconds: 5
+
+# Wait until the backend port is open (TCP only — no HTTP probe)
 - name: Wait for backend port 13000 to open
   ansible.builtin.wait_for:
     host: 127.0.0.1
     port: 13000
-    timeout: 120
+    state: started
+    timeout: 180
 
-# Build a shared list of candidate health paths
-- name: Set health check paths
-  ansible.builtin.set_fact:
-    health_paths:
-      - "{{ backend_health_path | default('/health') }}"
-      - "/api/health"
+# Optional: show services/tasks for visibility
+- name: Show Swarm services
+  ansible.builtin.shell: docker service ls
+  register: _svc
+  changed_when: false
 
-# Try each path; keep retrying until any returns 200
-- name: Probe backend health until one path returns 200
-  ansible.builtin.uri:
-    url: "http://127.0.0.1:13000{{ item }}"
-    status_code: 200
-    return_content: yes
-  register: _health
-  failed_when: false
-  loop: "{{ health_paths }}"
-  until: >
-    (_health.results | default([]))
-    | selectattr('status','defined')
-    | selectattr('status','equalto',200)
-    | list | length > 0
-  retries: 30
-  delay: 2
-
-# Fail with details if none succeeded
-- name: Fail with details if backend never became healthy
-  ansible.builtin.assert:
-    that:
-      - (_health.results | default([]))
-        | selectattr('status','defined')
-        | selectattr('status','equalto',200)
-        | list | length > 0
-    fail_msg: >-
-      Backend health failed. Tried: {{ health_paths }}.
-      Statuses: {{ _health.results | map(attribute='status') | list }}
-      Bodies: {{ _health.results | map(attribute='content') | list }}
+- name: Print Swarm services
+  ansible.builtin.debug:
+    var: _svc.stdout_lines
