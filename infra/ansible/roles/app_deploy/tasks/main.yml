@@ -40,7 +40,7 @@
 # Backend listener (container) is published to 13000 on the host
 - name: Wait for backend port 13000 to open
   ansible.builtin.wait_for:
-    host: 127.0.0.1
+    host: 54.163.245.207
     port: 13000
     state: started
     timeout: 180
@@ -48,7 +48,7 @@
 # Public entry via NGINX on port 80 → needed for http://54.163.245.207/
 - name: Wait for NGINX port 80 to open
   ansible.builtin.wait_for:
-    host: 127.0.0.1
+    host: 54.163.245.207
     port: 80
     state: started
     timeout: 120
@@ -65,7 +65,7 @@
 - name: Quick local HTTP check (best-effort)
   ansible.builtin.shell: |
     set -o pipefail
-    curl -sS -i http://127.0.0.1/ | head -n 20
+    curl -sS -i http://54.163.245.207/ | head -n 20
   register: _curl
   changed_when: false
   failed_when: false
