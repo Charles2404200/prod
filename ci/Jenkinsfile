@@ -4,7 +4,7 @@ pipeline {
 
   parameters {
     string(name: 'GHCR_NAMESPACE',  defaultValue: 'BennyBach1002', description: 'GitHub user/org (forced lowercase for Docker)')
-    string(name: 'BRANCH_TO_BUILD', defaultValue: 'ansible-prod',  description: 'Git branch to build')
+    string(name: 'BRANCH_TO_BUILD', defaultValue: 'main',  description: 'Git branch to build')
     string(name: 'DEPLOY_LIMIT',    defaultValue: 'lb,staging',    description: 'Ansible --limit (e.g. "lb,staging" or "lb,prod")')
   }
 
