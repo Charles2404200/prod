@@ -133,3 +133,10 @@
 - name: Print docker versions
   ansible.builtin.debug:
     var: docker_versions.stdout_lines
+
+    # Handlers
+- name: Restart docker
+  ansible.builtin.service:
+    name: docker
+    state: restarted
+  listen: Restart docker
