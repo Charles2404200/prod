@@ -1,5 +1,5 @@
 env: "staging"
 frontend_domain: "{{ staging_domain }}"
 mongo_uri: "mongodb+srv://RMIT_Store:123RMIT@rmitstore.uvixzgs.mongodb.net/?retryWrites=true&w=majority&appName=RMITStore"
-api_origin: "http:54.163.245.207/:3000"
+api_origin: "http://54.163.245.207/:3000"
 compose_file: "{{ playbook_dir }}/../compose/staging/docker-compose.yml"
