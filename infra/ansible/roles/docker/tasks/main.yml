@@ -42,7 +42,6 @@
 - name: Install Docker via convenience script (fallback)
   ansible.builtin.shell: |
     set -e
-    # curl-minimal is fine for this
     curl -fsSL https://get.docker.com | sh
   args:
     executable: /bin/bash
@@ -72,7 +71,7 @@
 
 - name: Add user to docker group
   ansible.builtin.user:
-    name: "{{ docker_user | default('ec2-user') }}"
+    name: "{{ docker_user | default('ec2-jenkins-user') }}"
     groups: docker
     append: true
 
@@ -133,10 +132,3 @@
 - name: Print docker versions
   ansible.builtin.debug:
     var: docker_versions.stdout_lines
-
-    # Handlers
-- name: Restart docker
-  ansible.builtin.service:
-    name: docker
-    state: restarted
-  listen: Restart docker
