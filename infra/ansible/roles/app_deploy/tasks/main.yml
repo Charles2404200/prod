@@ -31,12 +31,44 @@
     executable: /bin/bash
   changed_when: false
 
-# Give the API a moment and verify it’s healthy
-- name: Wait for backend health
-  ansible.builtin.uri:
-    url: "http://127.0.0.1:{{ backend_published_port | default(13000) }}{{ backend_health_path | default('/api/health') }}"
-    status_code: 200
-  register: health
+# Wait until the backend port is open
+- name: Wait for backend port 13000 to open
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: 13000
+    timeout: 120
+
+# Probe backend health on common paths, succeed when any returns 200
+- name: Probe backend health on common paths until one returns 200
+  vars:
+    paths:
+      - "{{ backend_health_path | default('/health') }}"
+      - "/api/health"
+  block:
+    - name: Try each candidate path
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:13000{{ item }}"
+        status_code: 200
+        return_content: yes
+      register: health_checks
+      failed_when: false
+      loop: "{{ paths }}"
+
+    - name: Pick the first 200 result (if any)
+      ansible.builtin.set_fact:
+        backend_health_result: >-
+          {{ (health_checks.results
+              | selectattr('status','defined')
+              | selectattr('status','equalto',200)
+              | list | first) | default({}) }}
+
+    - name: Fail if none succeeded
+      ansible.builtin.fail:
+        msg: >-
+          Backend health failed. Tried: {{ paths }}.
+          Statuses: {{ health_checks.results | map(attribute='status') | list }}
+          Bodies: {{ health_checks.results | map(attribute='content') | list }}
+      when: backend_health_result == {}
   retries: 30
   delay: 2
-  until: health.status == 200
+  until: backend_health_result != {}
