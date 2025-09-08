@@ -96,11 +96,6 @@
     mode: "0755"
   when: compose_pkg is failed
 
-- name: Ensure legacy docker-compose symlink (optional)
-  ansible.builtin.file:
-    src: "{{ docker_cli_plugins_dir | default('/usr/libexec/docker/cli-plugins') }}/docker-compose"
-    dest: /usr/local/bin/docker-compose
-    state: link
 
 # 5) (Optional) Init swarm and overlay network on localhost/manager
 - name: Init swarm (idempotent)
