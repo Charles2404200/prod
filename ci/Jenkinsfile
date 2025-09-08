@@ -136,7 +136,6 @@ echo "$GH_TOKEN" | docker login ghcr.io -u "$GH_USER" --password-stdin
 export ANSIBLE_STDOUT_CALLBACK=yaml
 export ANSIBLE_HOST_KEY_CHECKING=False
 
-# Run playbook over SSH to the same box
 ansible-playbook -i "${INVENTORY}" "${PLAYBOOK}" \
   -l build \
   --private-key "${ANSIBLE_KEY}" \
@@ -148,8 +147,10 @@ ansible-playbook -i "${INVENTORY}" "${PLAYBOOK}" \
   -e "app_name=${APP_NAME}" \
   -e "env=staging" \
   -e "ghcr_user=${GH_USER}" \
-  -e "ghcr_token=${GH_TOKEN}"
   -e "ghcr_token=${GH_TOKEN}" \
+  -e "frontend_published=18080" \
+  -e "backend_published=3000" \
+  -e "skip_backend_wait=true"
 
 echo "✓ Swarm deploy finished."
 '''
