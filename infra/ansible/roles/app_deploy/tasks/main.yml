@@ -1,23 +1,40 @@
 ---
 - name: Ensure deploy dir
-  file:
-    path: "/opt/{{ app_name | default('rmit-store') }}"
+  ansible.builtin.file:
+    path: "{{ deploy_root | default('/opt/rmit') }}"
     state: directory
-    mode: '0755'
+    mode: "0755"
+
+# Make sure the Swarm manager (your Jenkins EC2) can pull from GHCR
+- name: Docker login to GHCR as root (for Swarm pulls)
+  become: true
+  ansible.builtin.shell: |
+    set -e
+    echo "{{ ghcr_token }}" | docker login ghcr.io -u "{{ ghcr_user }}" --password-stdin
+  args:
+    executable: /bin/bash
+  when:
+    - ghcr_user is defined
+    - ghcr_token is defined
 
 - name: Render Swarm stack file
-  template:
-    src: "docker-stack.yml.j2"
-    dest: "/opt/{{ app_name }}/docker-stack.yml"
+  ansible.builtin.template:
+    src: docker-stack.yml.j2
+    dest: "{{ deploy_root | default('/opt/rmit') }}/docker-stack.yml"
     mode: "0644"
 
-- name: Deploy / Update stack
-  shell: docker stack deploy -c /opt/{{ app_name }}/docker-stack.yml {{ app_name | default('rmit-store') }}
-  args: { warn: false }
+- name: Deploy/update stack
+  become: true
+  ansible.builtin.shell: |
+    docker stack deploy -c "{{ deploy_root | default('/opt/rmit') }}/docker-stack.yml" "{{ stack_name | default('rmit') }}"
+  args:
+    executable: /bin/bash
+  changed_when: false
 
-- name: Wait for backend health (http://127.0.0.1:3000/api/health)
-  uri:
-    url: "http://127.0.0.1:3000/api/health"
+# Give the API a moment and verify it’s healthy
+- name: Wait for backend health
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ backend_published_port | default(13000) }}{{ backend_health_path | default('/api/health') }}"
     status_code: 200
   register: health
   retries: 30

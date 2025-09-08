@@ -1,0 +1,55 @@
+version: "3.8"
+
+networks:
+  rmit_net:
+    external: true
+
+volumes:
+  dbdata:
+
+services:
+  db:
+    image: "{{ db_image | default('mongo:7') }}"
+    command: ["--bind_ip_all"]
+    volumes:
+      - dbdata:/data/db
+    networks:
+      - rmit_net
+    deploy:
+      restart_policy:
+        condition: on-failure
+      placement:
+        constraints: [ "node.role == manager" ]
+
+  backend:
+    image: "{{ backend_image }}:{{ image_tag }}"
+    environment:
+      PORT: "3000"
+      BASE_API_URL: "api"
+      MONGO_URI: "mongodb://db:27017/{{ mongo_db_name | default('rmit_database') }}"
+      JWT_SECRET: "{{ jwt_secret | default('change_me_in_jenkins_or_group_vars') }}"
+      CLIENT_URL: "http://localhost"
+    depends_on:
+      - db
+    ports:
+      - "{{ backend_published_port | default(13000) }}:3000"
+    networks:
+      - rmit_net
+    deploy:
+      restart_policy:
+        condition: on-failure
+
+  frontend:
+    image: "{{ frontend_image }}:{{ image_tag }}"
+    environment:
+      # FE calls BE via NGINX -> BE published on 13000; NGINX proxies /api there
+      API_URL: "http://{{ hostvars[inventory_hostname].ansible_default_ipv4.address | default('127.0.0.1') }}:{{ backend_published_port | default(13000) }}/api"
+    depends_on:
+      - backend
+    ports:
+      - "{{ frontend_published_port | default(18080) }}:8080"
+    networks:
+      - rmit_net
+    deploy:
+      restart_policy:
+        condition: on-failure
