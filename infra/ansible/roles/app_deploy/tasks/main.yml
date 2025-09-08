@@ -38,19 +38,22 @@
     port: 13000
     timeout: 120
 
-# Probe backend health (tries /health then /api/health) and retry until one returns 200
-- name: Probe backend health until one path returns 200
-  vars:
-    paths:
+# Build a shared list of candidate health paths
+- name: Set health check paths
+  ansible.builtin.set_fact:
+    health_paths:
       - "{{ backend_health_path | default('/health') }}"
       - "/api/health"
+
+# Try each path; keep retrying until any returns 200
+- name: Probe backend health until one path returns 200
   ansible.builtin.uri:
     url: "http://127.0.0.1:13000{{ item }}"
     status_code: 200
     return_content: yes
   register: _health
   failed_when: false
-  loop: "{{ paths }}"
+  loop: "{{ health_paths }}"
   until: >
     (_health.results | default([]))
     | selectattr('status','defined')
@@ -59,6 +62,7 @@
   retries: 30
   delay: 2
 
+# Fail with details if none succeeded
 - name: Fail with details if backend never became healthy
   ansible.builtin.assert:
     that:
@@ -67,7 +71,6 @@
         | selectattr('status','equalto',200)
         | list | length > 0
     fail_msg: >-
-      Backend health failed. Tried: {{ paths }}.
+      Backend health failed. Tried: {{ health_paths }}.
       Statuses: {{ _health.results | map(attribute='status') | list }}
       Bodies: {{ _health.results | map(attribute='content') | list }}
-
