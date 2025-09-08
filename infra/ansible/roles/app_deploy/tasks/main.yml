@@ -1,65 +1,25 @@
 ---
-- name: Ensure deploy dirs
+- name: Ensure deploy dir
   file:
-    path: "{{ item }}"
+    path: "/opt/{{ app_name | default('rmit-store') }}"
     state: directory
     mode: '0755'
-  loop:
-    - "{{ deploy_root }}"
-    - "{{ deploy_root }}/backend"
 
-- name: Render backend env
+- name: Render Swarm stack file
   template:
-    src: "env.{{ env }}{% if env == 'prod' %}-{{ color }}{% endif %}.j2"
-    dest: "{{ deploy_root }}/backend/.env"
-    mode: "0600"
-
-- name: Copy compose file (choose by env/color)
-  copy:
-    src: >-
-      {{ 'compose-staging.yml'
-         if env == 'staging'
-         else ('compose-' ~ color ~ '.yml') }}
-    dest: "{{ deploy_root }}/docker-compose.yml"
-
-- name: Set compose environment file (ports/images)
-  copy:
-    dest: "{{ deploy_root }}/.env"
+    src: "docker-stack.yml.j2"
+    dest: "/opt/{{ app_name }}/docker-stack.yml"
     mode: "0644"
-    content: |
-      FRONTEND_IMAGE={{ frontend_image }}
-      BACKEND_IMAGE={{ backend_image }}
-      IMAGE_TAG={{ image_tag }}
-      BACKEND_STAGING_PORT={{ backend_staging_port }}
-      BACKEND_BLUE_PORT={{ backend_blue_port }}
-      BACKEND_GREEN_PORT={{ backend_green_port }}
 
-- name: Deploy stack
-  community.docker.docker_compose:
-    project_src: "{{ deploy_root }}"
-    files:
-      - "{{ deploy_root }}/docker-compose.yml"
-    pull: always
-    state: present
+- name: Deploy / Update stack
+  shell: docker stack deploy -c /opt/{{ app_name }}/docker-stack.yml {{ app_name | default('rmit-store') }}
+  args: { warn: false }
 
-- name: Wait for backend health
+- name: Wait for backend health (http://127.0.0.1:3000/api/health)
   uri:
-    url: >-
-      http:54.196.128.5/:{% if env == 'staging' -%}
-      {{ backend_staging_port }}
-      {%- elif color == 'blue' -%}
-      {{ backend_blue_port }}
-      {%- else -%}
-      {{ backend_green_port }}
-      {%- endif -%}{{ backend_health_path }}
+    url: "http://127.0.0.1:3000/api/health"
     status_code: 200
   register: health
   retries: 30
   delay: 2
   until: health.status == 200
-
-- name: "Reload Nginx (prod: switch take effect)"
-  when: env == 'prod'
-  service:
-    name: nginx
-    state: reloaded

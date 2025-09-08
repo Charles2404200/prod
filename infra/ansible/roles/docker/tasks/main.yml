@@ -1,16 +1,11 @@
 ---
 - name: Ensure base packages
-  become: true
   package:
-    name:
-      - curl
-      - git
-      - tar
+    name: [curl, git, tar, python3-pip]
     state: present
 
 # 1) Docker engine (pkg first, fallback to convenience script)
 - name: Install Docker engine via package if available
-  become: true
   package:
     name: docker
     state: present
@@ -18,14 +13,12 @@
   failed_when: false
 
 - name: Install Docker via convenience script (fallback)
-  become: true
   shell: curl -fsSL https://get.docker.com | sh
   args: { executable: /bin/bash }
   when: docker_pkg is failed
 
 # 2) Daemon config
 - name: Write /etc/docker/daemon.json
-  become: true
   copy:
     dest: /etc/docker/daemon.json
     mode: "0644"
@@ -39,60 +32,44 @@
       }
   notify: Restart docker
 
-# 3) Enable/Start Docker, grant user
+# 3) Enable/Start Docker, grant common users
 - name: Enable & start Docker
-  become: true
-  service:
-    name: docker
-    state: started
-    enabled: true
+  service: { name: docker, state: started, enabled: true }
 
-- name: Add user to docker group
-  become: true
-  user:
-    name: "{{ docker_user }}"
-    groups: docker
-    append: true
+- name: Add jenkins user to docker group (if exists)
+  user: { name: jenkins, groups: docker, append: true }
+  ignore_errors: true
 
-# 4) Docker Compose v2 (pkg if possible; otherwise plugin binary)
+# 4) Docker Compose v2 (optional, handy for troubleshooting)
 - name: Install docker compose plugin via package if present
-  become: true
   package:
     name: docker-compose-plugin
     state: present
   register: compose_pkg
   failed_when: false
 
-- name: Ensure CLI plugins dir exists
-  become: true
-  file:
-    path: "{{ docker_cli_plugins_dir }}"
-    state: directory
-    mode: "0755"
-
-- name: Install docker compose v2 plugin (fallback binary)
-  become: true
+- name: Ensure Compose v2 binary when pkg not available
   get_url:
-    url: "https://github.com/docker/compose/releases/download/{{ docker_compose_version }}/docker-compose-linux-x86_64"
-    dest: "{{ docker_cli_plugins_dir }}/docker-compose"
+    url: "https://github.com/docker/compose/releases/download/v2.27.0/docker-compose-linux-x86_64"
+    dest: "/usr/libexec/docker/cli-plugins/docker-compose"
     mode: "0755"
   when: compose_pkg is failed
+  ignore_errors: true
 
-- name: Ensure legacy docker-compose symlink (optional)
-  become: true
-  file:
-    src: "{{ docker_cli_plugins_dir }}/docker-compose"
-    dest: /usr/local/bin/docker-compose
-    state: link
+# 5) Init Swarm + overlay network
+- name: Init swarm (idempotent)
+  shell: docker info | grep -q 'Swarm: active' || docker swarm init --advertise-addr $(hostname -I | awk '{print $1}')
+  args: { warn: false }
+  register: swarm_init
+  changed_when: swarm_init.rc == 0
 
-# 5) Verify
-- name: Show docker versions
-  become: true
+- name: Create overlay network if missing
   shell: |
-    docker --version && docker compose version
-  register: docker_versions
-  changed_when: false
+    docker network ls --format '{{"{{.Name}}"}}' | grep -qx rmit_net || \
+    docker network create --driver overlay rmit_net
+  args: { warn: false }
 
-- name: Print docker versions
-  debug:
-    var: docker_versions.stdout_lines
+# Handlers
+- name: Restart docker
+  listen: Restart docker
+  service: { name: docker, state: restarted }

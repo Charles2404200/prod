@@ -1,11 +1,11 @@
 pipeline {
   agent any
-  options { skipDefaultCheckout(true) }
+  options { skipDefaultCheckout(true); timestamps() }
 
   parameters {
-    string(name: 'GHCR_NAMESPACE',  defaultValue: 'BennyBach1002', description: 'GitHub user/org (forced lowercase for Docker)')
-    string(name: 'BRANCH_TO_BUILD', defaultValue: 'main',  description: 'Git branch to build')
-    string(name: 'DEPLOY_LIMIT',    defaultValue: 'lb,staging',    description: 'Ansible --limit (e.g. "lb,staging" or "lb,prod")')
+    string(name: 'GHCR_NAMESPACE',  defaultValue: 'BennyBach1002', description: 'GitHub user/org (lowercase for Docker)')
+    string(name: 'BRANCH_TO_BUILD', defaultValue: 'ansible-test',  description: 'Git branch to build')
+    string(name: 'DEPLOY_LIMIT',    defaultValue: 'localhost',     description: 'Ansible --limit (use localhost to deploy on Jenkins host)')
   }
 
   environment {
@@ -15,6 +15,7 @@ pipeline {
   }
 
   stages {
+
     stage('Checkout into ws/') {
       steps {
         sh 'rm -rf ws && mkdir -p ws'
@@ -27,7 +28,7 @@ pipeline {
       }
     }
 
-    stage('Login to GHCR (controller)') {
+    stage('Login to GHCR') {
       steps {
         withCredentials([ usernamePassword(credentialsId: 'GHCR_USER',
                                            usernameVariable: 'GH_USER',
@@ -37,34 +38,39 @@ pipeline {
       }
     }
 
-    stage('Build & Push Images (BE/FE only)') {
+    stage('Build & Push Images (FE/BE/DB)') {
       steps {
         dir('ws') {
           script {
-            def ns = params.GHCR_NAMESPACE.toLowerCase().replaceAll(/[^a-z0-9-]/, '')
-            if (ns != params.GHCR_NAMESPACE) {
-              echo "NOTE: sanitized GHCR namespace '${params.GHCR_NAMESPACE}' -> '${ns}'"
-            }
+            def ns  = params.GHCR_NAMESPACE.toLowerCase().replaceAll(/[^a-z0-9-]/, '')
+            def TAG = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
 
             def BACKEND  = "ghcr.io/${ns}/rmit-store-backend"
             def FRONTEND = "ghcr.io/${ns}/rmit-store-frontend"
-            def TAG      = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
+            def DBIMG    = "ghcr.io/${ns}/rmit-store-db"
 
             sh """
               set -e
-              echo TAG=${TAG}
-              echo BE=${BACKEND}
-              echo FE=${FRONTEND}
+              echo Building tag ${TAG}
 
+              # Backend
               docker build --pull --no-cache -t ${BACKEND}:${TAG}  -f ci/Dockerfile.backend .
               docker tag ${BACKEND}:${TAG} ${BACKEND}:latest
               docker push ${BACKEND}:${TAG}
               docker push ${BACKEND}:latest
 
+              # Frontend
               docker build --pull --no-cache -t ${FRONTEND}:${TAG} -f ci/Dockerfile.frontend .
               docker tag ${FRONTEND}:${TAG} ${FRONTEND}:latest
               docker push ${FRONTEND}:${TAG}
               docker push ${FRONTEND}:latest
+
+              # Database (use upstream image re-tag; replace with your own Dockerfile if needed)
+              docker pull mongo:6
+              docker tag  mongo:6 ${DBIMG}:${TAG}
+              docker tag  mongo:6 ${DBIMG}:latest
+              docker push ${DBIMG}:${TAG}
+              docker push ${DBIMG}:latest
 
               docker image prune -f || true
             """
@@ -72,105 +78,51 @@ pipeline {
             env.IMAGE_TAG      = TAG
             env.BACKEND_IMAGE  = BACKEND
             env.FRONTEND_IMAGE = FRONTEND
+            env.DB_IMAGE       = DBIMG
           }
         }
       }
     }
 
-stage('Deploy with Ansible (Swarm + NGINX)') {
-  steps {
-    withCredentials([
-      usernamePassword(
-        credentialsId: 'GHCR_USER',          // <-- keep your GHCR creds ID
-        usernameVariable: 'GH_USER',
-        passwordVariable: 'GH_TOKEN'
-      ),
-      sshUserPrivateKey(
-        credentialsId: 'jenkins-ec2-key',    // <-- SSH key for the target hosts
-        keyFileVariable: 'ANSIBLE_KEY',
-        usernameVariable: 'ANSIBLE_SSH_USER' // usually ec2-user
-      )
-    ]) {
-      dir('ws') {
-        sh '''#!/usr/bin/env bash
+    stage('Deploy with Ansible (Swarm + NGINX on Jenkins host)') {
+      steps {
+        dir('ws') {
+          sh '''#!/usr/bin/env bash
 set -euo pipefail
 
 INVENTORY="${INVENTORY:-infra/ansible/inventory.ini}"
 PLAYBOOK="${PLAYBOOK:-infra/ansible/site.yml}"
-DEPLOY_LIMIT="${DEPLOY_LIMIT:-lb,staging}"
 
-echo "→ Checking inventory at: ${INVENTORY}"
-test -f "${INVENTORY}" || { echo "Inventory not found at ${INVENTORY}"; ls -la; ls -la infra/ansible || true; exit 2; }
-echo "----- INVENTORY -----"
-sed -n '1,120p' "${INVENTORY}"
-echo "---------------------"
-
-# Ensure Ansible
+# Install Ansible locally if missing
 if ! command -v ansible-playbook >/dev/null 2>&1; then
   if command -v yum >/dev/null 2>&1; then
-    sudo yum install -y ansible
-  elif command -v apt-get >/dev/null 2>&1; then
-    sudo apt-get update && sudo apt-get install -y ansible python3-pip
-  else
-    echo "Ansible not found and no apt/yum available"; exit 1
+    sudo yum install -y ansible python3-pip || true
   fi
-fi
-
-# Install Galaxy deps if present
-if [[ -f infra/ansible/requirements.yml ]]; then
-  ansible-galaxy collection install -r infra/ansible/requirements.yml -p ./collections
-fi
-
-chmod 600 "$ANSIBLE_KEY"
-
-# Optional quick SSH check to the first host in [lb] or [staging]
-TARGET_HOST="$(awk '
-  /^\[lb\]/{g=1;next} /^\[/{g=0}
-  g && NF {print; exit}
-' "${INVENTORY}" | awk "{print \$1}" || true)"
-if [[ -z "${TARGET_HOST}" ]]; then
-  TARGET_HOST="$(awk '
-    /^\[staging\]/{g=1;next} /^\[/{g=0}
-    g && NF {print; exit}
-  ' "${INVENTORY}" | awk "{print \$1}" || true)"
-fi
-if [[ -n "${TARGET_HOST}" ]]; then
-  # If host line is "name ansible_host=IP", extract IP, else use the name
-  HOST_TO_SSH="$(grep -Eo 'ansible_host=([^ ]+)' <<< "${TARGET_HOST}" | cut -d= -f2 || true)"
-  [[ -z "${HOST_TO_SSH}" ]] && HOST_TO_SSH="$(awk '{print $1}' <<< "${TARGET_HOST}")"
-  echo "→ SSH check: ${ANSIBLE_SSH_USER}@${HOST_TO_SSH}"
-  ssh -o StrictHostKeyChecking=no -i "$ANSIBLE_KEY" "${ANSIBLE_SSH_USER}@${HOST_TO_SSH}" 'hostname' || true
+  python3 -m pip install --user "ansible>=9,<10"
+  export PATH="$HOME/.local/bin:$PATH"
 fi
 
 export ANSIBLE_STDOUT_CALLBACK=yaml
 export ANSIBLE_HOST_KEY_CHECKING=False
-export ANSIBLE_COLLECTIONS_PATHS="./collections:$HOME/.ansible/collections:/usr/share/ansible/collections"
 
-# Run the play with robust -e usage (no multiline extra-vars)
 ansible-playbook -i "${INVENTORY}" "${PLAYBOOK}" \
-  -l "${DEPLOY_LIMIT}" \
-  --private-key "${ANSIBLE_KEY}" \
-  -e ansible_user="${ANSIBLE_SSH_USER}" \
-  -e "backend_image=${BACKEND_IMAGE}" \
+  -l "localhost" \
   -e "frontend_image=${FRONTEND_IMAGE}" \
+  -e "backend_image=${BACKEND_IMAGE}" \
+  -e "db_image=${DB_IMAGE}" \
   -e "image_tag=${IMAGE_TAG}" \
-  -e "env=staging" \
-  -e "ghcr_user=${GH_USER}" \
-  -e "ghcr_token=${GH_TOKEN}" \
-  -e "docker_user=${ANSIBLE_SSH_USER}" \
-  -e "docker_cli_plugins_dir=/usr/libexec/docker/cli-plugins" \
-  -e "docker_compose_version=v2.27.0"
+  -e "app_name=${APP_NAME}" \
+  -e "env=staging"
 
-echo "✓ Ansible deploy finished."
+echo "✓ Swarm deploy finished."
 '''
+        }
       }
     }
   }
-}
-  }
 
   post {
-    success { echo "✅ ${env.APP_NAME} ${env.IMAGE_TAG} built (BE/FE) & deployed via Swarm + NGINX." }
-    failure { echo "❌ Pipeline failed. See console log." }
+    success { echo "✅ ${env.APP_NAME} ${env.IMAGE_TAG} built & deployed to Swarm (host Nginx on :80)." }
+    failure { echo "❌ Pipeline failed. Check console log." }
   }
 }

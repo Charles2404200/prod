@@ -1,23 +1,9 @@
 ---
-- hosts: all
+- hosts: localhost
   become: true
+  vars:
+    app_name: "{{ app_name | default('rmit-store') }}"
   roles:
     - docker
-
-- hosts: lb
-  become: true
-  roles:
     - nginx
-    - node_exporter
-    - nginx_exporter
-
-- hosts: staging
-  become: true
-  roles:
-    - cadvisor
-    - { role: app_deploy }
-
-- hosts: monitoring
-  become: true
-  roles:
-    - monitoring_stack
+    - app_deploy
