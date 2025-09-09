@@ -373,24 +373,24 @@ pipeline {
                 sshagent(credentials: [SSH_CREDENTIAL_ID]) {
                     withCredentials([string(credentialsId: 'long-GHRC_PAT', variable: 'GH_TOKEN')]) {
                         sh """
-                            #authenticate with GHCR on jenkins
+                            # Ensure GHCR login for pulling images
                             echo "$GH_TOKEN" | docker login ghcr.io -u ${GHCR_USER} --password-stdin || true
 
-                            #ansible settings
+                            # Run Ansible playbook from the Jenkins workspace
                             export ANSIBLE_STDOUT_CALLBACK=yaml
                             export ANSIBLE_HOST_KEY_CHECKING=False
+                            export ANSIBLE_SSH_ARGS='-o ForwardAgent=yes -o StrictHostKeyChecking=no'
 
-                            #run ansible with ssh-agent forwarding
-                            ANSIBLE_SSH_ARGS="-o ForwardAgent=yes -o StrictHostKeyChecking=no" \\
-                            ansible-playbook -i ${INVENTORY} ${PLAYBOOK} \\
-                            -e "frontend_image=${FRONTEND_IMAGE}" \\
-                            -e "backend_image=${BACKEND_IMAGE}" \\
-                            -e "db_image=${DB_IMAGE}" \\
-                            -e "image_tag=\$(git rev-parse --short HEAD)" \\
-                            -e "app_name=${APP_NAME}" \\
-                            -e "env=staging" \\
-                            -e "ghcr_user=${GHCR_USER}" \\
-                            -e "ghcr_token=${GH_TOKEN}"
+                            ansible-playbook \
+                            -i infra/ansible/inventory.ini infra/ansible/site.yml \
+                            -e frontend_image=${FRONTEND_IMAGE} \
+                            -e backend_image=${BACKEND_IMAGE} \
+                            -e db_image=${DB_IMAGE} \
+                            -e image_tag=\$(git rev-parse --short HEAD) \
+                            -e app_name=${APP_NAME} \
+                            -e env=staging \
+                            -e ghcr_user=${GHCR_USER} \
+                            -e ghcr_token=${GH_TOKEN}
                         """
                     }
                 }
