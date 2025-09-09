@@ -362,47 +362,52 @@ pipeline {
 
         stage('Deploy with Ansible on EC2') {
             steps {
+                // sshagent(credentials: [SSH_CREDENTIAL_ID]) {
+                //     withCredentials([string(credentialsId: 'long-GHRC_PAT', variable: 'GH_TOKEN')]) {
+                //         sh """
+                //             ssh -o StrictHostKeyChecking=no ec2-user@${DOCKER_EC2_IP} '
+                //                 # Ensure GHCR login
+                //                 echo "$GH_TOKEN" | docker login ghcr.io -u ${GHCR_USER} --password-stdin || true
+
+                //                 # Run Ansible playbook
+                //                 export ANSIBLE_STDOUT_CALLBACK=yaml
+                //                 export ANSIBLE_HOST_KEY_CHECKING=False
+
+                //                 ansible-playbook -i ${INVENTORY} ${PLAYBOOK} \\
+                //                   -e "frontend_image=${FRONTEND_IMAGE}" \\
+                //                   -e "backend_image=${BACKEND_IMAGE}" \\
+                //                   -e "db_image=${DB_IMAGE}" \\
+                //                   -e "image_tag=\$(git rev-parse --short HEAD)" \\
+                //                   -e "app_name=${APP_NAME}" \\
+                //                   -e "env=staging" \\
+                //                   -e "ghcr_user=${GHCR_USER}" \\
+                //                   -e "ghcr_token=${GH_TOKEN}"
+                //             '
+                //         """
+                //     }
+                // }
                 sshagent(credentials: [SSH_CREDENTIAL_ID]) {
                     withCredentials([string(credentialsId: 'long-GHRC_PAT', variable: 'GH_TOKEN')]) {
                         sh """
-                            ssh -o StrictHostKeyChecking=no ec2-user@${DOCKER_EC2_IP} '
-                                # Ensure GHCR login
-                                echo "$GH_TOKEN" | docker login ghcr.io -u ${GHCR_USER} --password-stdin || true
+                            # Ensure GHCR login (runs on Jenkins machine)
+                            echo "$GH_TOKEN" | docker login ghcr.io -u ${GHCR_USER} --password-stdin || true
 
-                                # Run Ansible playbook
-                                export ANSIBLE_STDOUT_CALLBACK=yaml
-                                export ANSIBLE_HOST_KEY_CHECKING=False
+                            # Run Ansible playbook (Jenkins connects to EC2 via SSH)
+                            export ANSIBLE_STDOUT_CALLBACK=yaml
+                            export ANSIBLE_HOST_KEY_CHECKING=False
 
-                                ansible-playbook -i ${INVENTORY} ${PLAYBOOK} \\
-                                  -e "frontend_image=${FRONTEND_IMAGE}" \\
-                                  -e "backend_image=${BACKEND_IMAGE}" \\
-                                  -e "db_image=${DB_IMAGE}" \\
-                                  -e "image_tag=\$(git rev-parse --short HEAD)" \\
-                                  -e "app_name=${APP_NAME}" \\
-                                  -e "env=staging" \\
-                                  -e "ghcr_user=${GHCR_USER}" \\
-                                  -e "ghcr_token=${GH_TOKEN}"
-                            '
+                            ansible-playbook -i ${INVENTORY} ${PLAYBOOK} \\
+                            -e "frontend_image=${FRONTEND_IMAGE}" \\
+                            -e "backend_image=${BACKEND_IMAGE}" \\
+                            -e "db_image=${DB_IMAGE}" \\
+                            -e "image_tag=\$(git rev-parse --short HEAD)" \\
+                            -e "app_name=${APP_NAME}" \\
+                            -e "env=staging" \\
+                            -e "ghcr_user=${GHCR_USER}" \\
+                            -e "ghcr_token=${GH_TOKEN}"
                         """
                     }
                 }
-
-                // sshagent(credentials: [SSH_CREDENTIAL_ID]) {
-                //     sh """
-                //         export ANSIBLE_STDOUT_CALLBACK=yaml
-                //         export ANSIBLE_HOST_KEY_CHECKING=False
-
-                //         ansible-playbook -i ${INVENTORY} ${PLAYBOOK} \\
-                //         -e "frontend_image=${FRONTEND_IMAGE}" \\
-                //         -e "backend_image=${BACKEND_IMAGE}" \\
-                //         -e "db_image=${DB_IMAGE}" \\
-                //         -e "image_tag=\$(git rev-parse --short HEAD)" \\
-                //         -e "app_name=${APP_NAME}" \\
-                //         -e "env=staging" \\
-                //         -e "ghcr_user=${GHCR_USER}" \\
-                //         -e "ghcr_token=${GH_TOKEN}"
-                //     """
-                // }
             }
         }
     }
