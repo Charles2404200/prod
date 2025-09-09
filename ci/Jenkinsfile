@@ -337,19 +337,19 @@ pipeline {
                         echo "$GH_TOKEN" | docker login ghcr.io -u ${GHCR_USER} --password-stdin
                         IMAGE_TAG=\$(git rev-parse --short HEAD)
 
-                        # Backend
+                        #backend
                         docker build -t ${BACKEND_IMAGE}:\$IMAGE_TAG -f ci/Dockerfile.backend .
                         docker tag ${BACKEND_IMAGE}:\$IMAGE_TAG ${BACKEND_IMAGE}:latest
                         docker push ${BACKEND_IMAGE}:\$IMAGE_TAG
                         docker push ${BACKEND_IMAGE}:latest
 
-                        # Frontend
+                        #frontend
                         docker build -t ${FRONTEND_IMAGE}:\$IMAGE_TAG -f ci/Dockerfile.frontend .
                         docker tag ${FRONTEND_IMAGE}:\$IMAGE_TAG ${FRONTEND_IMAGE}:latest
                         docker push ${FRONTEND_IMAGE}:\$IMAGE_TAG
                         docker push ${FRONTEND_IMAGE}:latest
 
-                        # DB (re-tag mongo)
+                        #db (retag mongo)
                         docker pull mongo:6
                         docker tag mongo:6 ${DB_IMAGE}:\$IMAGE_TAG
                         docker tag mongo:6 ${DB_IMAGE}:latest
@@ -359,43 +359,29 @@ pipeline {
                 }
             }
         }
+        //can remove once testing is done
+        stage('Test SSH to EC2') {
+            steps {
+                sshagent(credentials: [SSH_CREDENTIAL_ID]) {
+                    sh "ssh -o StrictHostKeyChecking=no ec2-user@${DOCKER_EC2_IP} 'echo ✅ Connected via Jenkins'"
+                }
+            }
+        }
 
         stage('Deploy with Ansible on EC2') {
             steps {
-                // sshagent(credentials: [SSH_CREDENTIAL_ID]) {
-                //     withCredentials([string(credentialsId: 'long-GHRC_PAT', variable: 'GH_TOKEN')]) {
-                //         sh """
-                //             ssh -o StrictHostKeyChecking=no ec2-user@${DOCKER_EC2_IP} '
-                //                 # Ensure GHCR login
-                //                 echo "$GH_TOKEN" | docker login ghcr.io -u ${GHCR_USER} --password-stdin || true
-
-                //                 # Run Ansible playbook
-                //                 export ANSIBLE_STDOUT_CALLBACK=yaml
-                //                 export ANSIBLE_HOST_KEY_CHECKING=False
-
-                //                 ansible-playbook -i ${INVENTORY} ${PLAYBOOK} \\
-                //                   -e "frontend_image=${FRONTEND_IMAGE}" \\
-                //                   -e "backend_image=${BACKEND_IMAGE}" \\
-                //                   -e "db_image=${DB_IMAGE}" \\
-                //                   -e "image_tag=\$(git rev-parse --short HEAD)" \\
-                //                   -e "app_name=${APP_NAME}" \\
-                //                   -e "env=staging" \\
-                //                   -e "ghcr_user=${GHCR_USER}" \\
-                //                   -e "ghcr_token=${GH_TOKEN}"
-                //             '
-                //         """
-                //     }
-                // }
                 sshagent(credentials: [SSH_CREDENTIAL_ID]) {
                     withCredentials([string(credentialsId: 'long-GHRC_PAT', variable: 'GH_TOKEN')]) {
                         sh """
-                            # Ensure GHCR login (runs on Jenkins machine)
+                            #authenticate with GHCR on jenkins
                             echo "$GH_TOKEN" | docker login ghcr.io -u ${GHCR_USER} --password-stdin || true
 
-                            # Run Ansible playbook (Jenkins connects to EC2 via SSH)
+                            #ansible settings
                             export ANSIBLE_STDOUT_CALLBACK=yaml
                             export ANSIBLE_HOST_KEY_CHECKING=False
 
+                            #run ansible with ssh-agent forwarding
+                            ANSIBLE_SSH_ARGS="-o ForwardAgent=yes -o StrictHostKeyChecking=no" \\
                             ansible-playbook -i ${INVENTORY} ${PLAYBOOK} \\
                             -e "frontend_image=${FRONTEND_IMAGE}" \\
                             -e "backend_image=${BACKEND_IMAGE}" \\
