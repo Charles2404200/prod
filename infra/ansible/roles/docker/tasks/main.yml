@@ -27,6 +27,11 @@
     state: absent
   ignore_errors: yes
 
+- name: Ensure docker Python SDK is installed system-wide
+  pip:
+    name: docker
+    executable: /usr/bin/pip3
+    
 - name: Ensure base packages are installed
   package:
     name:

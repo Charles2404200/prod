@@ -1,14 +1,13 @@
 ---
 - name: Remove existing node_exporter container
-  #become: yes
   community.docker.docker_container:
     name: node_exporter
     state: absent
     force_kill: yes
     docker_host: "unix:///var/run/docker.sock"
+  become: yes
 
 - name: Run node_exporter
-  #become: yes
   community.docker.docker_container:
     name: node_exporter
     image: prom/node-exporter:latest
@@ -17,3 +16,4 @@
     network_mode: host
     command: ["--collector.systemd"]
     docker_host: "unix:///var/run/docker.sock"
+  become: yes
