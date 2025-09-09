@@ -222,7 +222,7 @@
 //     parameters {
 //         string(name: 'GHCR_NAMESPACE', defaultValue: 'apotato4325', description: 'GHCR namespace (user/org)')
 //         //string(name: 'HOST', defaultValue: '', description: 'Optional DNS host (not used in Swarm)') dropped bc kubernetes no longer used
-//         string(name: 'BRANCH_TO_BUILD', defaultValue: 'main', description: 'Git branch to build')
+//         string(name: 'BRANCH_TO_BUILD', defaultValue: 'docker', description: 'Git branch to build')
 //     }
 
 //     environment {
@@ -308,8 +308,8 @@ pipeline {
   options { skipDefaultCheckout(true) }
 
   parameters {
-    string(name: 'GHCR_NAMESPACE',  defaultValue: 'BennyBach1002', description: 'GitHub user/org (lowercase for Docker)')
-    string(name: 'BRANCH_TO_BUILD', defaultValue: 'ansible-test',  description: 'Git branch to build')
+    string(name: 'GHCR_NAMESPACE',  defaultValue: 'apotato4325', description: 'GitHub user/org (lowercase for Docker)')
+    string(name: 'BRANCH_TO_BUILD', defaultValue: 'docker',  description: 'Git branch to build')
     //string(name: 'DEPLOY_LIMIT',    defaultValue: 'localhost',     description: 'Ansible --limit (use localhost to deploy on Jenkins host)')
   }
 
