@@ -57,13 +57,8 @@
     state: directory
     mode: '0755'
 
-# - name: Set docker compose version
-#   set_fact:
-#     docker_compose_version: "v2.39.0"
-
 - name: Download docker compose v2 plugin
   get_url:
-    # url: "https://github.com/docker/compose/releases/download/{{ docker_compose_version }}/docker-compose-linux-x86_64"
     url: "https://github.com/docker/compose/releases/download/v2.39.0/docker-compose-linux-x86_64"
     dest: /usr/local/lib/docker/cli-plugins/docker-compose
     mode: '0755'
