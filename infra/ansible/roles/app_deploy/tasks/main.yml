@@ -39,7 +39,7 @@
     project_src: "{{ deploy_root }}"
     files:
       - "{{ deploy_root }}/docker-compose.yml"
-    pull: always
+    pull: true
     state: present
 
 - name: Wait for backend health
