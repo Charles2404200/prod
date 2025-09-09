@@ -5,13 +5,12 @@ pipeline {
   parameters {
     string(name: 'GHCR_NAMESPACE',  defaultValue: 'BennyBach1002', description: 'GitHub user/org (lowercase for Docker)')
     string(name: 'BRANCH_TO_BUILD', defaultValue: 'ansible-test',  description: 'Git branch to build')
-    string(name: 'DEPLOY_LIMIT',    defaultValue: 'localhost',     description: 'Ansible --limit (use localhost to deploy on Jenkins host)')
+    //string(name: 'DEPLOY_LIMIT',    defaultValue: 'localhost',     description: 'Ansible --limit (use localhost to deploy on Jenkins host)')
   }
 
   environment {
     APP_NAME  = 'rmit-store'
-    INVENTORY = 'infra/ansible/inventory.ini'
-    PLAYBOOK  = 'infra/ansible/site.yml'
+    DOCKER_EC2_IP = '54.242.180.228'
   }
 
   stages {
@@ -65,7 +64,7 @@ pipeline {
               docker push ${FRONTEND}:${TAG}
               docker push ${FRONTEND}:latest
 
-              # Database (use upstream image re-tag; replace with your own Dockerfile if needed)
+              # Database (re-tag mongo)
               docker pull mongo:6
               docker tag  mongo:6 ${DBIMG}:${TAG}
               docker tag  mongo:6 ${DBIMG}:latest
@@ -84,83 +83,44 @@ pipeline {
       }
     }
 
-stage('Deploy with Ansible (Swarm + NGINX on EC2 via SSH)') {
-  steps {
-    withCredentials([
-      usernamePassword(
-        credentialsId: 'GHCR_USER',
-        usernameVariable: 'GH_USER',
-        passwordVariable: 'GH_TOKEN'
-      ),
-      sshUserPrivateKey(
-        credentialsId: 'jenkins-ec2-key', // <-- your screenshot credential
-        keyFileVariable: 'ANSIBLE_KEY',
-        usernameVariable: 'CREDS_USER'     // we won't use this username
-      )
-    ]) {
-      dir('ws') {
-        sh '''#!/usr/bin/env bash
-set -euo pipefail
+    stage('Deploy to EC2 (Docker Swarm)') {
+      steps {
+        withCredentials([
+          usernamePassword(credentialsId: 'GHCR_USER',
+                           usernameVariable: 'GH_USER',
+                           passwordVariable: 'GH_TOKEN'),
+          sshUserPrivateKey(
+            credentialsId: 'jenkins-ec2-key',
+            keyFileVariable: 'ANSIBLE_KEY',
+            usernameVariable: 'CREDS_USER'
+          )
+        ]) {
+          sh """
+            ssh -i "$ANSIBLE_KEY" -o StrictHostKeyChecking=no ec2-user@${DOCKER_EC2_IP} '
+              echo "$GH_TOKEN" | docker login ghcr.io -u $GH_USER --password-stdin || true
+              cd /home/ec2-user/prod/compose/staging || exit 1
 
-INVENTORY="${INVENTORY:-infra/ansible/inventory.ini}"
-PLAYBOOK="${PLAYBOOK:-infra/ansible/site.yml}"
+              # Init swarm if not already
+              docker swarm init --advertise-addr ${DOCKER_EC2_IP} || true
 
-# Force the real EC2 SSH user. Change to 'ubuntu' if your AMI is Ubuntu.
-SSH_USER="ec2-user"
+              # Remove old stack
+              docker stack rm mystack || true
+              sleep 10
 
-echo "Workspace: $(pwd)"
-echo "Inventory: ${INVENTORY}"
-echo "Playbook : ${PLAYBOOK}"
-echo "Using SSH user: ${SSH_USER}"
+              # Deploy
+              docker stack deploy -c docker-stack.yml mystack --with-registry-auth
 
-export PATH="$HOME/.local/bin:$PATH"
-
-# Ensure Ansible
-if ! command -v ansible-playbook >/dev/null 2>&1; then
-  if command -v yum >/dev/null 2>&1; then
-    sudo yum install -y python3-pip || true
-  elif command -v apt-get >/dev/null 2>&1; then
-    sudo apt-get update -y && sudo apt-get install -y python3-pip || true
-  fi
-  python3 -m pip install --user "ansible>=9,<10"
-fi
-
-# Preflight: SSH to localhost with the key as the right user
-echo "Preflight SSH → ${SSH_USER}@127.0.0.1"
-ssh -i "$ANSIBLE_KEY" -o StrictHostKeyChecking=no -o BatchMode=yes \
-    "${SSH_USER}@127.0.0.1" 'echo "SSH ok: $(whoami) on $(hostname)"'
-
-# Login GHCR so the host can pull private images
-echo "$GH_TOKEN" | docker login ghcr.io -u "$GH_USER" --password-stdin
-
-export ANSIBLE_STDOUT_CALLBACK=yaml
-export ANSIBLE_HOST_KEY_CHECKING=False
-
-ansible-playbook -i "${INVENTORY}" "${PLAYBOOK}" \
-  -l build \
-  --private-key "${ANSIBLE_KEY}" \
-  -u "${SSH_USER}" \
-  -e "frontend_image=${FRONTEND_IMAGE}" \
-  -e "backend_image=${BACKEND_IMAGE}" \
-  -e "db_image=${DB_IMAGE}" \
-  -e "image_tag=${IMAGE_TAG}" \
-  -e "app_name=${APP_NAME}" \
-  -e "env=staging" \
-  -e "ghcr_user=${GH_USER}" \
-  -e "ghcr_token=${GH_TOKEN}" \
-  -e "frontend_published=18080" \
-  -e "backend_published=13000"
-
-echo "✓ Swarm deploy finished."
-'''
+              # Status
+              docker stack services mystack
+            '
+          """
+        }
       }
     }
   }
-}
-  }
 
   post {
-    success { echo "✅ ${env.APP_NAME} ${env.IMAGE_TAG} built & deployed to Swarm (host Nginx on :80)." }
-    failure { echo "❌ Pipeline failed. Check console log." }
+    success { echo "✅ ${env.APP_NAME} ${env.IMAGE_TAG} built & deployed to Swarm" }
+    failure { echo "❌ Deployment failed. Check console log." }
   }
 }
