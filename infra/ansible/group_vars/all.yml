@@ -4,7 +4,7 @@ image_tag: "latest"
 
 frontend_http_port: 80
 backend_staging_port: 3000
-# Backend ports
+#backend ports
 backend_blue_port: 3001
 backend_green_port: 3002
 
