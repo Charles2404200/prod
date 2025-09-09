@@ -1,6 +1,12 @@
 ---
 - hosts: all
   become: true
+  pre_tasks:
+    - name: Remove curl-minimal to avoid conflicts
+      package:
+        name: curl-minimal
+        state: absent
+      ignore_errors: yes
   roles:
     - docker
 
