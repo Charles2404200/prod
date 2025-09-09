@@ -9,3 +9,6 @@ deploy_root: "/opt/rmit"
 frontend_root_staging: "/var/www/frontend-staging"
 
 staging_domain: "98.83.164.144"
+
+
+mongo_uri: "mongodb+srv://RMIT_Store:123RMIT@rmitstore.uvixzgs.mongodb.net/?retryWrites=true&w=majority&appName=RMITStore"
