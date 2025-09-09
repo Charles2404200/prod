@@ -13,4 +13,6 @@
     restart_policy: always
     network_mode: host
     command: ["--collector.systemd"]
-    
+  become: yes
+  environment:
+    DOCKER_HOST: "unix:///var/run/docker.sock"

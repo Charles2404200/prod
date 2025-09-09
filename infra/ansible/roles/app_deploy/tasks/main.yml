@@ -37,10 +37,14 @@
 - name: Deploy stack
   community.docker.docker_compose:
     project_src: "{{ deploy_root }}"
-    files:
-      - "{{ deploy_root }}/docker-compose.yml"
-    pull: true
+    # files:
+    #   - "{{ deploy_root }}/docker-compose.yml"
+
     state: present
+    pull: true
+    become: yes
+    environment:
+      DOCKER_HOST: "unix:///var/run/docker.sock"
 
 - name: Wait for backend health
   uri:
