@@ -334,7 +334,7 @@ pipeline {
             steps {
                 withCredentials([string(credentialsId: 'long-GHRC_PAT', variable: 'GH_TOKEN')]) {
                     sh """
-                        echo "$GH_TOKEN" | docker login ghcr.io -u ${GHCR_USER} --password-stdin
+                        echo $GH_TOKEN | docker login ghcr.io -u ${GHCR_USER} --password-stdin
                         IMAGE_TAG=\$(git rev-parse --short HEAD)
 
                         # Backend
