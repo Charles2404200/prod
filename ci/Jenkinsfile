@@ -232,7 +232,7 @@ pipeline {
     stages {
         stage('Checkout') {
             steps {
-                 git branch: "${params.BRANCH_TO_BUILD}", credentialsId: 'long-github-creds', url: 'https://github.com/apotato4325/rmit-store.git'
+                 git branch: "${params.BRANCH_TO_BUILD}", credentialsId: 'long-github-creds', url: 'https://github.com/APotato4325/rmit-store-backend_frontend.git'
             }
         }
 
