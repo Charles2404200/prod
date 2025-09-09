@@ -1,0 +1,3 @@
+frontend_root_blue: /var/www/frontend/blue
+frontend_root_green: /var/www/frontend/green
+frontend_root_staging: /var/www/frontend/staging
