@@ -1,6 +1,8 @@
 ---
 - hosts: all
   become: true
+  vars:
+    docker_compose_version: "2.18.1" #might need chagne
   pre_tasks:
     - name: Remove curl-minimal to avoid conflicts
       package:
