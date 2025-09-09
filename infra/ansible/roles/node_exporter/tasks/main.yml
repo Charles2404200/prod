@@ -4,6 +4,7 @@
     name: node_exporter
     state: absent
     force_kill: yes
+    become: yes
 
 - name: Run node_exporter
   community.docker.docker_container:
