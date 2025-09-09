@@ -1,21 +1,76 @@
+# ---
+# - name: Ensure base packages
+#   package:
+#     name: [curl, git, tar]
+#     state: present
+
+# - name: Install Docker engine
+#   shell: |
+#     if ! command -v docker >/dev/null; then
+#       curl -fsSL https://get.docker.com | sh
+#     fi
+#   args: { executable: /bin/bash }
+
+# - name: Enable & start Docker
+#   service: { name: docker, state: started, enabled: true }
+
+# - name: Install docker compose v2
+#   get_url:
+#   url: "https://github.com/docker/compose/releases/download/{{ docker_compose_version }}/docker-compose-linux-x86_64"
+#   dest: /usr/local/lib/docker/cli-plugins/docker-compose
+#   mode: '0755'
+
 ---
-- name: Ensure base packages
+- name: Remove curl-minimal to avoid conflicts
   package:
-    name: [curl, git, tar]
+    name: curl-minimal
+    state: absent
+  ignore_errors: yes
+
+- name: Ensure base packages are installed
+  package:
+    name:
+      - curl
+      - tar
+      - gzip
+      - unzip
+      - bash
+      - git
+      - iproute
+      - python3
     state: present
 
 - name: Install Docker engine
-  shell: |
-    if ! command -v docker >/dev/null; then
-      curl -fsSL https://get.docker.com | sh
-    fi
-  args: { executable: /bin/bash }
+  package:
+    name: docker
+    state: present
 
-- name: Enable & start Docker
-  service: { name: docker, state: started, enabled: true }
+- name: Enable and start Docker service
+  service:
+    name: docker
+    state: started
+    enabled: yes
 
-- name: Install docker compose v2
+- name: Create docker CLI plugin directory
+  file:
+    path: /usr/local/lib/docker/cli-plugins
+    state: directory
+    mode: '0755'
+
+- name: Set docker compose version
+  set_fact:
+    docker_compose_version: "2.21.0"
+
+- name: Download docker compose v2 plugin
   get_url:
-  url: "https://github.com/docker/compose/releases/download/{{ docker_compose_version }}/docker-compose-linux-x86_64"
-  dest: /usr/local/lib/docker/cli-plugins/docker-compose
-  mode: '0755'
+    url: "https://github.com/docker/compose/releases/download/{{ docker_compose_version }}/docker-compose-linux-x86_64"
+    dest: /usr/local/lib/docker/cli-plugins/docker-compose
+    mode: '0755'
+
+- name: Verify docker compose
+  command: docker compose version
+  register: compose_version
+  changed_when: false
+
+- debug:
+    var: compose_version.stdout
