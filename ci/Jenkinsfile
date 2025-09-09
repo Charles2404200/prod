@@ -304,130 +304,94 @@
 
 //DOCKER AND ANSIBLE INTEGRATION
 pipeline {
-  agent any
-  options { skipDefaultCheckout(true) }
+    agent any
 
-  parameters {
-    string(name: 'GHCR_NAMESPACE',  defaultValue: 'apotato4325', description: 'GitHub user/org (lowercase for Docker)')
-    string(name: 'BRANCH_TO_BUILD', defaultValue: 'docker',  description: 'Git branch to build')
-    //string(name: 'DEPLOY_LIMIT',    defaultValue: 'localhost',     description: 'Ansible --limit (use localhost to deploy on Jenkins host)')
-  }
-
-  environment {
-    APP_NAME  = 'rmit-store'
-    // INVENTORY = 'infra/ansible/inventory.ini'
-    // PLAYBOOK  = 'infra/ansible/site.yml'
-    DOCKER_EC2_IP = '54.242.180.228'
-  }
-
-  stages {
-
-    stage('Checkout into ws/') {
-      steps {
-        sh 'rm -rf ws && mkdir -p ws'
-        checkout([$class: 'GitSCM',
-          branches: [[name: "*/${params.BRANCH_TO_BUILD}"]],
-          userRemoteConfigs: [[url: 'https://github.com/Charles2404200/prod']],
-          extensions: [[ $class: 'RelativeTargetDirectory', relativeTargetDir: 'ws' ]]
-        ])
-        sh 'ls -la ws | head -n 30'
-      }
+    parameters {
+        string(name: 'GHCR_NAMESPACE', defaultValue: 'apotato4325', description: 'GHCR namespace (user/org)')
+        string(name: 'BRANCH_TO_BUILD', defaultValue: 'docker', description: 'Git branch to build')
     }
 
-    stage('Login to GHCR') {
-      steps {
-        withCredentials([ usernamePassword(credentialsId: 'GHCR_USER',
-                                           usernameVariable: 'GH_USER',
-                                           passwordVariable: 'GH_TOKEN') ]) {
-          sh 'echo "$GH_TOKEN" | docker login ghcr.io -u "$GH_USER" --password-stdin'
+    environment {
+        APP_NAME = 'rmit-store'
+        BACKEND_IMAGE  = "ghcr.io/${params.GHCR_NAMESPACE}/rmit-store-backend"
+        FRONTEND_IMAGE = "ghcr.io/${params.GHCR_NAMESPACE}/rmit-store-frontend"
+        DB_IMAGE       = "ghcr.io/${params.GHCR_NAMESPACE}/rmit-store-db"
+        DOCKER_EC2_IP  = '54.242.180.228'
+        SSH_CREDENTIAL_ID = 'long-docker-ec2-key'
+        GHCR_USER = 'apotato4325'
+        PLAYBOOK = '/home/ec2-user/prod/infra/ansible/site.yml'
+        INVENTORY = '/home/ec2-user/prod/infra/ansible/inventory.ini'
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                git branch: "${params.BRANCH_TO_BUILD}", credentialsId: 'long-github-creds', url: 'https://github.com/APotato4325/rmit-store-backend_frontend.git'
+            }
         }
-      }
-    }
 
-    stage('Build & Push Images (FE/BE/DB)') {
-      steps {
-        dir('ws') {
-          script {
-            def ns  = params.GHCR_NAMESPACE.toLowerCase().replaceAll(/[^a-z0-9-]/, '')
-            def TAG = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
+        stage('Build & Push Images') {
+            steps {
+                withCredentials([string(credentialsId: 'long-GHRC_PAT', variable: 'GH_TOKEN')]) {
+                    sh """
+                        echo "$GH_TOKEN" | docker login ghcr.io -u ${GHCR_USER} --password-stdin
+                        IMAGE_TAG=\$(git rev-parse --short HEAD)
 
-            def BACKEND  = "ghcr.io/${ns}/rmit-store-backend"
-            def FRONTEND = "ghcr.io/${ns}/rmit-store-frontend"
-            def DBIMG    = "ghcr.io/${ns}/rmit-store-db"
+                        # Backend
+                        docker build -t ${BACKEND_IMAGE}:\$IMAGE_TAG -f ci/Dockerfile.backend .
+                        docker tag ${BACKEND_IMAGE}:\$IMAGE_TAG ${BACKEND_IMAGE}:latest
+                        docker push ${BACKEND_IMAGE}:\$IMAGE_TAG
+                        docker push ${BACKEND_IMAGE}:latest
 
-            sh """
-              set -e
-              echo Building tag ${TAG}
+                        # Frontend
+                        docker build -t ${FRONTEND_IMAGE}:\$IMAGE_TAG -f ci/Dockerfile.frontend .
+                        docker tag ${FRONTEND_IMAGE}:\$IMAGE_TAG ${FRONTEND_IMAGE}:latest
+                        docker push ${FRONTEND_IMAGE}:\$IMAGE_TAG
+                        docker push ${FRONTEND_IMAGE}:latest
 
-              # Backend
-              docker build --pull --no-cache -t ${BACKEND}:${TAG}  -f ci/Dockerfile.backend .
-              docker tag ${BACKEND}:${TAG} ${BACKEND}:latest
-              docker push ${BACKEND}:${TAG}
-              docker push ${BACKEND}:latest
-
-              # Frontend
-              docker build --pull --no-cache -t ${FRONTEND}:${TAG} -f ci/Dockerfile.frontend .
-              docker tag ${FRONTEND}:${TAG} ${FRONTEND}:latest
-              docker push ${FRONTEND}:${TAG}
-              docker push ${FRONTEND}:latest
-
-              # Database (re-tag mongo)
-              docker pull mongo:6
-              docker tag  mongo:6 ${DBIMG}:${TAG}
-              docker tag  mongo:6 ${DBIMG}:latest
-              docker push ${DBIMG}:${TAG}
-              docker push ${DBIMG}:latest
-
-              docker image prune -f || true
-            """
-
-            env.IMAGE_TAG      = TAG
-            env.BACKEND_IMAGE  = BACKEND
-            env.FRONTEND_IMAGE = FRONTEND
-            env.DB_IMAGE       = DBIMG
-          }
+                        # DB (re-tag mongo)
+                        docker pull mongo:6
+                        docker tag mongo:6 ${DB_IMAGE}:\$IMAGE_TAG
+                        docker tag mongo:6 ${DB_IMAGE}:latest
+                        docker push ${DB_IMAGE}:\$IMAGE_TAG
+                        docker push ${DB_IMAGE}:latest
+                    """
+                }
+            }
         }
-      }
-    }
 
-    stage('Deploy to EC2 (Docker Swarm)') {
-      steps {
-        withCredentials([
-          usernamePassword(credentialsId: 'GHCR_USER',
-                           usernameVariable: 'GH_USER',
-                           passwordVariable: 'GH_TOKEN'),
-          sshUserPrivateKey(
-            credentialsId: 'jenkins-ec2-key',
-            keyFileVariable: 'ANSIBLE_KEY',
-            usernameVariable: 'CREDS_USER'
-          )
-        ]) {
-          sh """
-            ssh -i "$ANSIBLE_KEY" -o StrictHostKeyChecking=no ec2-user@${DOCKER_EC2_IP} '
-              echo "$GH_TOKEN" | docker login ghcr.io -u $GH_USER --password-stdin || true
-              cd /home/ec2-user/prod/compose/staging || exit 1
+        stage('Deploy with Ansible on EC2') {
+            steps {
+                sshagent(credentials: [SSH_CREDENTIAL_ID]) {
+                    withCredentials([string(credentialsId: 'long-GHRC_PAT', variable: 'GH_TOKEN')]) {
+                        sh """
+                            ssh -o StrictHostKeyChecking=no ec2-user@${DOCKER_EC2_IP} '
+                                # Ensure GHCR login
+                                echo "$GH_TOKEN" | docker login ghcr.io -u ${GHCR_USER} --password-stdin || true
 
-              # Init swarm if not already
-              docker swarm init --advertise-addr ${DOCKER_EC2_IP} || true
+                                # Run Ansible playbook
+                                export ANSIBLE_STDOUT_CALLBACK=yaml
+                                export ANSIBLE_HOST_KEY_CHECKING=False
 
-              # Remove old stack
-              docker stack rm mystack || true
-              sleep 10
-
-              # Deploy
-              docker stack deploy -c docker-stack.yml mystack --with-registry-auth
-
-              # Status
-              docker stack services mystack
-            '
-          """
+                                ansible-playbook -i ${INVENTORY} ${PLAYBOOK} \\
+                                  -e "frontend_image=${FRONTEND_IMAGE}" \\
+                                  -e "backend_image=${BACKEND_IMAGE}" \\
+                                  -e "db_image=${DB_IMAGE}" \\
+                                  -e "image_tag=\$(git rev-parse --short HEAD)" \\
+                                  -e "app_name=${APP_NAME}" \\
+                                  -e "env=staging" \\
+                                  -e "ghcr_user=${GHCR_USER}" \\
+                                  -e "ghcr_token=${GH_TOKEN}"
+                            '
+                        """
+                    }
+                }
+            }
         }
-      }
     }
-  }
 
-  post {
-    success { echo "✅ ${env.APP_NAME} ${env.IMAGE_TAG} built & deployed to Swarm" }
-    failure { echo "❌ Deployment failed. Check console log." }
-  }
+    post {
+        success { echo "✅ ${APP_NAME} built, pushed, and deployed via Ansible on ${DOCKER_EC2_IP}" }
+        failure { echo "❌ Deployment failed" }
+    }
 }
