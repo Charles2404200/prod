@@ -12,12 +12,20 @@
   roles:
     - docker
 
+# - hosts: staging:prod
+#   become: true
+#   roles:
+#     - node_exporter
+#     - cadvisor
+#     - nginx_exporter
+
 - hosts: staging:prod
-  become: true
+  become: yes
+  vars:
+    ansible_python_interpreter: /usr/bin/python3
   roles:
+    # - docker #currently redundant
     - node_exporter
-    - cadvisor
-    - nginx_exporter
 
 - hosts: monitoring
   become: true
