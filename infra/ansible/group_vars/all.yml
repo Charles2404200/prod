@@ -12,4 +12,6 @@ staging_domain: "98.83.164.144"
 
 
 mongo_uri: "mongodb+srv://RMIT_Store:123RMIT@rmitstore.uvixzgs.mongodb.net/?retryWrites=true&w=majority&appName=RMITStore"
+
+#change this before submitting
 jwt_secret: "iFuckingHateThisAssignmentSoMuch"
