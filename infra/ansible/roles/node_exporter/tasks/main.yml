@@ -1,6 +1,6 @@
 ---
 - name: Remove existing node_exporter container
-  become: yes
+  #become: yes
   community.docker.docker_container:
     name: node_exporter
     state: absent
@@ -8,7 +8,7 @@
     docker_host: "unix:///var/run/docker.sock"
 
 - name: Run node_exporter
-  become: yes
+  #become: yes
   community.docker.docker_container:
     name: node_exporter
     image: prom/node-exporter:latest
