@@ -59,7 +59,7 @@
 
 - name: Set docker compose version
   set_fact:
-    docker_compose_version: "2.39.3"
+    docker_compose_version: "v2.39.0"
 
 - name: Download docker compose v2 plugin
   get_url:
