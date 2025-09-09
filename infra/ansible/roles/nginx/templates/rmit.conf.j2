@@ -1,0 +1,40 @@
+# rmit.conf.j2 - minimal blue/green/staging setup place holder
+
+server {
+    listen 80;
+
+    # Blue frontend
+    root {{ frontend_root_blue }};
+    index index.html;
+    server_name blue.rmit-store.local;
+
+    location / {
+        try_files $uri /index.html;
+    }
+}
+
+server {
+    listen 80;
+
+    # Green frontend
+    root {{ frontend_root_green }};
+    index index.html;
+    server_name green.rmit-store.local;
+
+    location / {
+        try_files $uri /index.html;
+    }
+}
+
+server {
+    listen 8080;
+
+    # Staging frontend
+    root {{ frontend_root_staging }};
+    index index.html;
+    server_name staging.rmit-store.local;
+
+    location / {
+        try_files $uri /index.html;
+    }
+}
