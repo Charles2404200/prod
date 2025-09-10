@@ -1,18 +1,10 @@
 ---
-# - hosts: all
-#   become: true
-#   # vars:
-#   #   docker_host: "unix://var/run/docker.sock"
-#   #   docker_compose_version: "v2.21.0" #might need chagne
-#   pre_tasks:
-#     - name: Remove curl-minimal to avoid conflicts
-#       package:
-#         name: curl-minimal
-#         state: absent
-#       ignore_errors: yes
-#   roles:
-#     - docker
-- pre_tasks:
+- hosts: all
+  become: true
+  vars:
+    docker_host: "unix://var/run/docker.sock"
+    docker_compose_version: "v2.21.0"
+  pre_tasks:
     - name: Ensure docker group exists
       ansible.builtin.group:
         name: docker
@@ -33,28 +25,6 @@
         state: absent
       ignore_errors: yes
 
-- hosts: all
-  become: true
-  vars:
-    docker_host: "unix://var/run/docker.sock"
-    docker_compose_version: "v2.21.0"
-  pre_tasks:
-    - name: Ensure docker group exists
-      ansible.builtin.group:
-        name: docker
-        state: present
-
-    - name: Add ec2-user to the docker group
-      ansible.builtin.user:
-        name: ec2-user
-        groups: docker
-        append: yes
-    
-    - name: Remove curl-minimal to avoid conflicts
-      package:
-        name: curl-minimal
-        state: absent
-      ignore_errors: yes
   roles:
     - docker
 
@@ -67,8 +37,6 @@
 
 - hosts: staging #:prod
   become: yes
-  # vars:
-  #   ansible_python_interpreter: /usr/bin/python3
   roles:
     # - docker #currently redundant
     - node_exporter
