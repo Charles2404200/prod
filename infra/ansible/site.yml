@@ -12,6 +12,26 @@
 #       ignore_errors: yes
 #   roles:
 #     - docker
+- pre_tasks:
+    - name: Ensure docker group exists
+      ansible.builtin.group:
+        name: docker
+        state: present
+
+    - name: Add ec2-user to the docker group
+      ansible.builtin.user:
+        name: ec2-user
+        groups: docker
+        append: yes
+
+    - name: Force a new SSH connection to apply group changes
+      meta: reset_connection
+
+    - name: Remove curl-minimal to avoid conflicts
+      package:
+        name: curl-minimal
+        state: absent
+      ignore_errors: yes
 
 - hosts: all
   become: true
@@ -37,7 +57,7 @@
       ignore_errors: yes
   roles:
     - docker
-    
+
 # - hosts: staging:prod
 #   become: true
 #   roles:

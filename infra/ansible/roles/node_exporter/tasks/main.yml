@@ -1,16 +1,16 @@
 ---
 - name: Remove existing node_exporter container
   community.docker.docker_container:
-    name: node_exporter
+    name: "node_exporter"
     state: absent
     force_kill: yes
-    docker_host: "{{ docker_host }}"
+    docker_host: "unix:///var/run/docker.sock"
   become: yes
 
 - name: Run node_exporter
   community.docker.docker_container:
-    name: node_exporter
-    image: prom/node-exporter:latest
+    name: "node_exporter"
+    image: "prom/node-exporter:latest"
     state: started
     restart_policy: always
     network_mode: host
