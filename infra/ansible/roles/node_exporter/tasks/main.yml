@@ -9,11 +9,11 @@
 
 - name: Run node_exporter
   community.docker.docker_container:
-  name: node_exporter
-  image: prom/node-exporter:latest
-  state: started
-  restart_policy: always
-  network_mode: host
-  command: ["--collector.systemd"]
-  docker_host: "unix://var/run/docker.sock"
+    name: node_exporter
+    image: prom/node-exporter:latest
+    state: started
+    restart_policy: always
+    network_mode: host
+    command: ["--collector.systemd"]
+    docker_host: "unix://var/run/docker.sock"
   become: yes
