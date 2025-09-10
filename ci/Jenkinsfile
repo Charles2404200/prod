@@ -216,25 +216,25 @@ pipeline {
 
     parameters {
         string(name: 'GHCR_NAMESPACE', defaultValue: 'apotato4325', description: 'GHCR namespace (user/org)')
-        //string(name: 'HOST', defaultValue: '', description: 'Optional DNS host (not used in Swarm)') dropped bc kubernetes no longer used
         string(name: 'BRANCH_TO_BUILD', defaultValue: 'main', description: 'Git branch to build')
     }
 
     environment {
-        APP_NAME = 'rmit-store'
-        BACKEND_IMAGE = "ghcr.io/${params.GHCR_NAMESPACE}/rmit-store-backend"
-        FRONTEND_IMAGE = "ghcr.io/${params.GHCR_NAMESPACE}/rmit-store-frontend"
-        DOCKER_EC2_IP = '54.242.180.228'
-        SSH_CREDENTIAL_ID = 'long-docker-ec2-key'
-        GHCR_USER = 'apotato4325'
+        APP_NAME        = 'rmit-store'
+        BACKEND_IMAGE   = "ghcr.io/${params.GHCR_NAMESPACE}/rmit-store-backend"
+        FRONTEND_IMAGE  = "ghcr.io/${params.GHCR_NAMESPACE}/rmit-store-frontend"
+        DOCKER_EC2_IP   = '54.242.180.228'              // your EC2 IP
+        SSH_CREDENTIAL_ID = 'long-docker-ec2-key'       // SSH private key Jenkins uses
+        GHCR_USER       = 'apotato4325'
     }
 
-    stages {
-        stage('Checkout') {
-            steps {
-                 git branch: "${params.BRANCH_TO_BUILD}", credentialsId: 'long-github-creds', url: 'https://github.com/APotato4325/rmit-store-backend_frontend.git'
-            }
+    stage('Checkout') {
+        steps {
+            git branch: "${params.BRANCH_TO_BUILD}", 
+                url: 'https://github.com/APotato4325/rmit-store-backend_frontend.git',
+                credentialsId: 'long-github-creds'
         }
+    }
 
         stage('Build & Push Images') {
             steps {
