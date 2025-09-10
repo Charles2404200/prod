@@ -4,7 +4,7 @@
     name: node_exporter
     state: absent
     force_kill: yes
-    docker_host: "{{ docker_host }}"
+    #docker_host: "{{ docker_host }}"
   become: yes
 
 - name: Run node_exporter
@@ -15,5 +15,5 @@
     restart_policy: always
     network_mode: host
     command: ["--collector.systemd"]
-    docker_host: "{{ docker_host }}"
+    #docker_host: "{{ docker_host }}"
   become: yes
