@@ -1,9 +1,9 @@
 ---
 - hosts: all
   become: true
-  vars:
-    docker_host: "unix://var/run/docker.sock"
-    docker_compose_version: "v2.21.0" #might need chagne
+  # vars:
+  #   docker_host: "unix://var/run/docker.sock"
+  #   docker_compose_version: "v2.21.0" #might need chagne
   pre_tasks:
     - name: Remove curl-minimal to avoid conflicts
       package:
@@ -22,8 +22,8 @@
 
 - hosts: staging #:prod
   become: yes
-  vars:
-    ansible_python_interpreter: /usr/bin/python3
+  # vars:
+  #   ansible_python_interpreter: /usr/bin/python3
   roles:
     # - docker #currently redundant
     - node_exporter
