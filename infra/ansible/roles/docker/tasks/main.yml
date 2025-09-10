@@ -75,7 +75,7 @@
   changed_when: false
   become: yes
   environment:
-    DOCKER_HOST: "unix:///var/run/docker.sock"
+    DOCKER_HOST: "unix://var/run/docker.sock"
 
 - debug:
     var: compose_version.stdout

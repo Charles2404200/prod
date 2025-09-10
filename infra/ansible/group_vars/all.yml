@@ -20,4 +20,4 @@ mongo_uri: "mongodb+srv://RMIT_Store:123RMIT@rmitstore.uvixzgs.mongodb.net/?retr
 jwt_secret: "iFuckingHateThisAssignmentSoMuch"
 
 ansible_python_interpreter: /usr/bin/python3
-docker_host: "unix:///var/run/docker.sock"
+docker_host: "unix://var/run/docker.sock"
