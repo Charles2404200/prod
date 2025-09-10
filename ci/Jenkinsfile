@@ -383,6 +383,7 @@ pipeline {
 
                             ansible-playbook \
                             -i infra/ansible/inventory.ini infra/ansible/site.yml \
+                            -e ghcr_token=${GH_TOKEN}
                             -e frontend_image=${FRONTEND_IMAGE} \
                             -e backend_image=${BACKEND_IMAGE} \
                             -e db_image=${DB_IMAGE} \

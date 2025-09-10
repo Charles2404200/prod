@@ -2,6 +2,9 @@ frontend_image: "yourdockeruser/rmit-store-frontend"
 backend_image: "yourdockeruser/rmit-store-backend"
 image_tag: "latest"
 
+docker_host: "unix://var/run/docker.sock"
+ansible_python_interpreter: /usr/bin/python3
+
 frontend_http_port: 80
 backend_staging_port: 3000
 #backend ports
@@ -19,5 +22,3 @@ mongo_uri: "mongodb+srv://RMIT_Store:123RMIT@rmitstore.uvixzgs.mongodb.net/?retr
 #change this before submitting
 jwt_secret: "iFuckingHateThisAssignmentSoMuch"
 
-docker_host: "unix://var/run/docker.sock"
-ansible_python_interpreter: /usr/bin/python3
