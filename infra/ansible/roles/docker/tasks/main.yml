@@ -27,10 +27,11 @@
     state: absent
   ignore_errors: yes
 
-- name: Ensure docker Python SDK is installed system-wide
-  pip:
+- name: Ensure Python Docker SDK is installed
+  ansible.builtin.pip:
     name: docker
-    executable: /usr/bin/pip3
+    executable: pip3
+  become: yes
     
 - name: Ensure base packages are installed
   package:
