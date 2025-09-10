@@ -3,7 +3,6 @@
   become: true
   vars:
     docker_host: "unix://var/run/docker.sock"
-  vars:
     docker_compose_version: "v2.21.0" #might need chagne
   pre_tasks:
     - name: Remove curl-minimal to avoid conflicts
