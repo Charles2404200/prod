@@ -2,7 +2,7 @@
 - hosts: all
   become: true
   vars:
-    docker_host: "unix://var/run/docker.sock"
+    #docker_host: "unix://var/run/docker.sock"
     docker_compose_version: "v2.21.0"
   pre_tasks:
     - name: Ensure docker group exists
@@ -35,7 +35,7 @@
 #     - cadvisor
 #     - nginx_exporter
 
-- hosts: staging #:prod
+- hosts: staging
   become: yes
   roles:
     # - docker #currently redundant

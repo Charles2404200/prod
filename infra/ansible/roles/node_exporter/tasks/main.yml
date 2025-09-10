@@ -4,7 +4,7 @@
     name: "node_exporter"
     state: absent
     force_kill: yes
-    docker_host: "unix:///var/run/docker.sock"
+    docker_host: "{{ docker_host }}"
   become: yes
 
 - name: Run node_exporter
