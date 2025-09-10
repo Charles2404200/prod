@@ -15,6 +15,9 @@
 
 - hosts: all
   become: true
+  vars:
+    docker_host: "unix://var/run/docker.sock"
+    docker_compose_version: "v2.21.0"
   pre_tasks:
     - name: Ensure docker group exists
       ansible.builtin.group:
@@ -26,7 +29,15 @@
         name: ec2-user
         groups: docker
         append: yes
-
+    
+    - name: Remove curl-minimal to avoid conflicts
+      package:
+        name: curl-minimal
+        state: absent
+      ignore_errors: yes
+  roles:
+    - docker
+    
 # - hosts: staging:prod
 #   become: true
 #   roles:
