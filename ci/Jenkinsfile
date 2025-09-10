@@ -363,7 +363,7 @@ pipeline {
         stage('Test SSH to EC2') {
             steps {
                 sshagent(credentials: [SSH_CREDENTIAL_ID]) {
-                    sh "ssh -o StrictHostKeyChecking=no ec2-user@${DOCKER_EC2_IP} 'echo ✅ Gay ahh'"
+                    sh "ssh -o StrictHostKeyChecking=no ec2-user@${DOCKER_EC2_IP} 'echo ✅ Connected via Jenkins'"
                 }
             }
         }
