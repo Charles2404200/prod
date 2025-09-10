@@ -381,15 +381,16 @@ pipeline {
                             export ANSIBLE_HOST_KEY_CHECKING=False
                             export ANSIBLE_SSH_ARGS='-o ForwardAgent=yes -o StrictHostKeyChecking=no'
 
-                            ansible-playbook \
-                            -i infra/ansible/inventory.ini infra/ansible/site.yml \
-                            -e "frontend_image=${FRONTEND_IMAGE}" \
-                            -e "backend_image=${BACKEND_IMAGE}" \
-                            -e "db_image=${DB_IMAGE}" \
-                            -e "image_tag=\$(git rev-parse --short HEAD)" \
-                            -e "app_name=${APP_NAME}" \
-                            -e "env=staging" \
-                            -e "ghcr_user=${GHCR_USER}" \
+                            ansible-playbook \\
+                            -i infra/ansible/inventory.ini infra/ansible/site.yml \\
+                            -e "docker_host=unix:///var/run/docker.sock" \\
+                            -e "frontend_image=${FRONTEND_IMAGE}" \\
+                            -e "backend_image=${BACKEND_IMAGE}" \\
+                            -e "db_image=${DB_IMAGE}" \\
+                            -e "image_tag=\$(git rev-parse --short HEAD)" \\
+                            -e "app_name=${APP_NAME}" \\
+                            -e "env=staging" \\
+                            -e "ghcr_user=${GHCR_USER}" \\
                             -e "ghcr_token=${GH_TOKEN}"
                         """
                     }
