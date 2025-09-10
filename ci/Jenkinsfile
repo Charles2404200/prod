@@ -211,20 +211,21 @@
 //         failure { echo "❌ Pipeline failed" }
 //     }
 // }
+
 pipeline {
     agent any
 
     parameters {
         string(name: 'GHCR_NAMESPACE', defaultValue: 'apotato4325', description: 'GHCR namespace (user/org)')
-        string(name: 'BRANCH_TO_BUILD', defaultValue: 'main', description: 'Git branch to build')
+        string(name: 'BRANCH_TO_BUILD', defaultValue: 'docker-ansible', description: 'Git branch to build')
     }
 
     environment {
         APP_NAME        = 'rmit-store'
         BACKEND_IMAGE   = "ghcr.io/${params.GHCR_NAMESPACE}/rmit-store-backend"
         FRONTEND_IMAGE  = "ghcr.io/${params.GHCR_NAMESPACE}/rmit-store-frontend"
-        DOCKER_EC2_IP   = '54.242.180.228'              // your EC2 IP
-        SSH_CREDENTIAL_ID = 'long-docker-ec2-key'       // SSH private key Jenkins uses
+        DOCKER_EC2_IP   = '54.242.180.228'
+        SSH_CREDENTIAL_ID = 'long-docker-ec2-key'
         GHCR_USER       = 'apotato4325'
     }
 
@@ -236,59 +237,60 @@ pipeline {
         }
     }
 
-        stage('Build & Push Images') {
-            steps {
+    stage('Build & Push Images') {
+        steps {
+            withCredentials([string(credentialsId: 'long-GHRC_PAT', variable: 'GH_TOKEN')]) {
+                sh """
+                    echo "$GH_TOKEN" | docker login ghcr.io -u ${GHCR_USER} --password-stdin
+                    IMAGE_TAG=\$(git rev-parse --short HEAD)
+
+                    # Backend
+                    docker build -t ${BACKEND_IMAGE}:\$IMAGE_TAG -f ci/Dockerfile.backend .
+                    docker tag ${BACKEND_IMAGE}:\$IMAGE_TAG ${BACKEND_IMAGE}:latest
+                    docker push ${BACKEND_IMAGE}:\$IMAGE_TAG
+                    docker push ${BACKEND_IMAGE}:latest
+
+                    # Frontend
+                    docker build -t ${FRONTEND_IMAGE}:\$IMAGE_TAG -f ci/Dockerfile.frontend .
+                    docker tag ${FRONTEND_IMAGE}:\$IMAGE_TAG ${FRONTEND_IMAGE}:latest
+                    docker push ${FRONTEND_IMAGE}:\$IMAGE_TAG
+                    docker push ${FRONTEND_IMAGE}:latest
+                """
+            }
+        }
+    }
+
+    stage('Deploy to EC2 (Docker Swarm)') {
+        steps {
+            sshagent(credentials: [SSH_CREDENTIAL_ID]) {
                 withCredentials([string(credentialsId: 'long-GHRC_PAT', variable: 'GH_TOKEN')]) {
                     sh """
-                        echo "$GH_TOKEN" | docker login ghcr.io -u ${GHCR_USER} --password-stdin
-                        IMAGE_TAG=\$(git rev-parse --short HEAD)
+                        ssh -o StrictHostKeyChecking=no ec2-user@${DOCKER_EC2_IP} '
+                            echo "$GH_TOKEN" | docker login ghcr.io -u ${GHCR_USER} --password-stdin || true
+                            cd /home/ec2-user/prod/compose/staging || exit 1
 
-                        # Backend
-                        docker build -t ${BACKEND_IMAGE}:\$IMAGE_TAG -f ci/Dockerfile.backend .
-                        docker tag ${BACKEND_IMAGE}:\$IMAGE_TAG ${BACKEND_IMAGE}:latest
-                        docker push ${BACKEND_IMAGE}:\$IMAGE_TAG
-                        docker push ${BACKEND_IMAGE}:latest
+                            # Initialize swarm if not already
+                            docker swarm init --advertise-addr ${DOCKER_EC2_IP} || true
 
-                        # Frontend
-                        docker build -t ${FRONTEND_IMAGE}:\$IMAGE_TAG -f ci/Dockerfile.frontend .
-                        docker tag ${FRONTEND_IMAGE}:\$IMAGE_TAG ${FRONTEND_IMAGE}:latest
-                        docker push ${FRONTEND_IMAGE}:\$IMAGE_TAG
-                        docker push ${FRONTEND_IMAGE}:latest
+                            # Remove old stack (clean deploy)
+                            docker stack rm mystack || true
+                            sleep 10
+
+                            # Deploy fresh
+                            docker stack deploy -c docker-stack.yml mystack --with-registry-auth
+
+                            # Show status
+                            docker stack services mystack
+                        '
                     """
                 }
             }
         }
-
-        stage('Deploy to EC2 (Docker Swarm)') {
-            steps {
-                sshagent(credentials: [SSH_CREDENTIAL_ID]) {
-                    withCredentials([string(credentialsId: 'long-GHRC_PAT', variable: 'GH_TOKEN')]) {
-                        sh """
-                            ssh -o StrictHostKeyChecking=no ec2-user@${DOCKER_EC2_IP} '
-                                echo "$GH_TOKEN" | docker login ghcr.io -u ${GHCR_USER} --password-stdin || true
-                                cd /home/ec2-user/prod/compose/staging || exit 1
-
-                                # Initialize swarm if not already
-                                docker swarm init --advertise-addr ${DOCKER_EC2_IP} || true
-
-                                # Remove old stack (clean deploy)
-                                docker stack rm mystack || true
-                                sleep 10
-
-                                # Deploy fresh
-                                docker stack deploy -c docker-stack.yml mystack --with-registry-auth
-
-                                # Show status
-                                docker stack services mystack
-                            '
-                        """
-                    }
-                }
-            }
-        }
     }
+    
 
     post {
         success { echo "✅ ${APP_NAME} deployed to ${DOCKER_EC2_IP}" }
         failure { echo "❌ Deployment failed" }
     }
+}
