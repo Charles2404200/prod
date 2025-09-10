@@ -292,4 +292,3 @@ pipeline {
         success { echo "✅ ${APP_NAME} deployed to ${DOCKER_EC2_IP}" }
         failure { echo "❌ Deployment failed" }
     }
-}
