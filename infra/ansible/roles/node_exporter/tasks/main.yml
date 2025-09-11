@@ -1,13 +1,37 @@
+# ---
+# - name: Remove existing node_exporter container
+#   community.docker.docker_container:
+#     name: node_exporter
+#     state: absent
+#     force_kill: yes
+#     # docker_host: "{{ docker_host }}"
+#   become: yes
+#   # environment:
+#   #   DOCKER_HOST: "{{ docker_host }}"
+
+# - name: Run node_exporter
+#   community.docker.docker_container:
+#     name: node_exporter
+#     image: prom/node-exporter:latest
+#     state: started
+#     restart_policy: always
+#     network_mode: host
+#     command: ["--collector.systemd"]
+#     # docker_host: "{{ docker_host }}"
+#   become: yes
+#   # environment:
+#   #   DOCKER_HOST: "{{ docker_host }}"
+
+
 ---
 - name: Remove existing node_exporter container
   community.docker.docker_container:
     name: node_exporter
     state: absent
     force_kill: yes
-    # docker_host: "{{ docker_host }}"
+    # only use docker_host if defined
+    docker_host: "{{ docker_host | default(omit) }}"
   become: yes
-  # environment:
-  #   DOCKER_HOST: "{{ docker_host }}"
 
 - name: Run node_exporter
   community.docker.docker_container:
@@ -17,27 +41,5 @@
     restart_policy: always
     network_mode: host
     command: ["--collector.systemd"]
-    # docker_host: "{{ docker_host }}"
+    docker_host: "{{ docker_host | default(omit) }}"
   become: yes
-  # environment:
-  #   DOCKER_HOST: "{{ docker_host }}"
-
-# ---
-# - name: Remove existing node_exporter container
-#   community.docker.docker_container:
-#     name: "node_exporter"
-#     state: absent
-#     force_kill: yes
-#     docker_host: "{{ docker_host }}"
-#   become: yes
-
-# - name: Run node_exporter
-#   community.docker.docker_container:
-#     name: "node_exporter"
-#     image: "prom/node-exporter:latest"
-#     state: started
-#     restart_policy: always
-#     network_mode: host
-#     command: ["--collector.systemd"]
-#     docker_host: "{{ docker_host }}"
-#   become: yes
