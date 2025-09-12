@@ -6,9 +6,11 @@
     "clean": "rimraf dist",
     "build": "npm run clean && cross-env NODE_ENV=production webpack --mode production --config webpack/webpack.prod.js",
     "dev": "cross-env NODE_ENV=development webpack-dev-server --config webpack/webpack.dev.js",
-    "test": "echo 'No server tests specified yet' && exit 0",
-    "test:unit": "echo 'Running unit tests...'",
-    "test:integration": "echo 'Running integration tests...'"
+    "test": "jest --runInBand",
+    "test:unit": "jest --runInBand",
+    "test:integration": "jest --runInBand",
+    "e2e:pup": "node test/e2e/e2e.puppeteer.js"
+
   },
   "dependencies": {
     "@fontsource/poppins": "^4.5.9",
@@ -46,21 +48,29 @@
   "devDependencies": {
     "@babel/core": "^7.4.5",
     "@babel/plugin-proposal-class-properties": "^7.14.5",
-    "@babel/preset-env": "^7.4.5",
-    "@babel/preset-react": "^7.0.0",
+    "@babel/preset-env": "^7.28.3",
+    "@babel/preset-react": "^7.27.1",
+    "@testing-library/jest-dom": "^5.16.5",
+    "@testing-library/react": "^12.1.5",
+    "@testing-library/user-event": "^14.6.1",
     "autoprefixer": "^9.6.0",
+    "babel-jest": "^27.5.1",
     "babel-loader": "^8.0.6",
     "chalk": "^2.4.2",
     "copy-webpack-plugin": "^5.0.3",
     "cross-env": "^5.2.1",
     "css-loader": "^2.1.1",
     "cssnano": "^4.1.10",
+    "cypress": "^15.1.0",
     "dotenv-webpack": "^1.8.0",
     "file-loader": "^4.0.0",
     "html-webpack-plugin": "^3.2.0",
+    "identity-obj-proxy": "^3.0.0",
+    "jest": "^27.5.1",
     "mini-css-extract-plugin": "^0.7.0",
     "optimize-css-assets-webpack-plugin": "^5.0.1",
     "postcss-loader": "^3.0.0",
+    "puppeteer": "^24.20.0",
     "rimraf": "^2.6.3",
     "sass-loader": "^10.2.0",
     "style-loader": "^0.23.1",
@@ -69,6 +79,7 @@
     "webpack-cli": "^3.3.12",
     "webpack-dev-server": "^3.11.2",
     "webpack-merge": "^4.2.1",
-    "webpack-pwa-manifest": "^4.0.0"
+    "webpack-pwa-manifest": "^4.0.0",
+    "whatwg-fetch": "^3.6.20"
   }
 }

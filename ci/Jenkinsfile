@@ -26,6 +26,48 @@ pipeline {
         sh 'ls -la ws | head -n 30'
       }
     }
+stage('Run Unit Tests (Client & Server)') {
+  options { timeout(time: 5, unit: 'MINUTES') }
+  parallel {
+    stage('Server Unit Tests') {
+      steps {
+        dir('ws/server') {
+          sh '''
+            set -euo pipefail
+            export NODE_ENV=test
+            export CI=true
+            export HUSKY=0
+
+            echo "→ Installing server dependencies"
+            npm ci
+
+            echo "→ Running server unit tests"
+            npm test -- --runInBand --colors
+          '''
+        }
+      }
+    }
+
+    stage('Client Unit Tests') {
+      steps {
+        dir('ws/client') {
+          sh '''
+            set -euo pipefail
+            export NODE_ENV=test
+            export CI=true
+            export HUSKY=0
+
+            echo "→ Installing client dependencies"
+            npm ci
+
+            echo "→ Running client unit tests"
+            npm test -- --runInBand --colors
+          '''
+        }
+      }
+    }
+  }
+}
 
     stage('Login to GHCR (controller)') {
       steps {

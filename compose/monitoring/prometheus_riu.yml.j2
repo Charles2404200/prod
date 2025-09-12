@@ -1,0 +1,100 @@
+global:
+  scrape_interval: 15s 
+  evaluation_interval: 15s 
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          - alertmanager:9093
+
+rule_files:
+  - /etc/prometheus/rules/*.yml
+
+scrape_configs:
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  - job_name: 'node_exporter'
+    static_configs:
+      - targets:
+          - "{{ hostvars['stg-front'].ansible_host }}:9100"
+        labels:
+          env: 'staging'
+          instance_type: 'frontend'
+      - targets:
+          - "{{ hostvars['stg-back'].ansible_host }}:9100"
+        labels:
+          env: 'staging'
+          instance_type: 'backend'
+      - targets:
+          - "{{ hostvars['prod-front'].ansible_host }}:9100"
+        labels:
+          env: 'production'
+          instance_type: 'frontend'
+      - targets:
+          - "{{ hostvars['prod-back'].ansible_host }}:9100"
+        labels:
+          env: 'production'
+          instance_type: 'backend'
+
+  - job_name: 'cadvisor'
+    static_configs:
+      - targets:
+          - "{{ hostvars['stg-front'].ansible_host }}:8081"
+        labels:
+          env: 'staging'
+          instance_type: 'frontend'
+      - targets:
+          - "{{ hostvars['stg-back'].ansible_host }}:8081"
+        labels:
+          env: 'staging'
+          instance_type: 'backend'
+      - targets:
+          - "{{ hostvars['prod-front'].ansible_host }}:8081"
+        labels:
+          env: 'production'
+          instance_type: 'frontend'
+      - targets:
+          - "{{ hostvars['prod-back'].ansible_host }}:8081"
+        labels:
+          env: 'production'
+          instance_type: 'backend'
+
+  - job_name: 'nginx_exporter'
+    static_configs:
+      - targets:
+          - "{{ hostvars['stg-front'].ansible_host }}:9113"
+        labels:
+          env: 'staging'
+      - targets:
+          - "{{ hostvars['prod-front'].ansible_host }}:9113"
+        labels:
+          env: 'production'
+
+  - job_name: 'backend-staging'
+    metrics_path: /metrics 
+    scrape_interval: 5s
+    static_configs:
+      - targets: ["{{ hostvars['stg-back'].ansible_host }}:3000"]
+        labels:
+          env: 'staging'
+
+  - job_name: 'backend-prod-blue'
+    metrics_path: /metrics
+    scrape_interval: 5s
+    static_configs:
+      - targets: ["{{ hostvars['prod-back'].ansible_host }}:3001"]
+        labels:
+          env: 'production'
+          deployment: 'blue'
+
+  - job_name: 'backend-prod-green'
+    metrics_path: /metrics
+    scrape_interval: 5s
+    static_configs:
+      - targets: ["{{ hostvars['prod-back'].ansible_host }}:3002"]
+        labels:
+          env: 'production'
+          deployment: 'green'

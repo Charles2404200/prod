@@ -4,9 +4,10 @@ vendor/
 cache/
 .*/
 *.min.*
-*.test.*
+# *.test.*
 *.spec.*
 *.bundle.*
 *.bundle-min.*
 *.log
 package-lock.json
+.DS_Store

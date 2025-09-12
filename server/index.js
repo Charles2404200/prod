@@ -57,17 +57,27 @@ const httpRequestDurationMicroseconds = new client.Histogram({
   name: "http_request_duration_ms",
   help: "Duration of HTTP requests in ms",
   labelNames: ["method", "route", "code"],
-  buckets: [50, 100, 200, 300, 400, 500],
+  buckets: [0.05, 0.1, 0.2, 0.5, 1, 2, 5],
 });
 
 // Register histogram
 register.registerMetric(httpRequestDurationMicroseconds);
 
+function normalizeRoute(req) {
+  if (req.route && req.route.path) return req.route.path;
+  if (!req.path) return 'unmatched';
+  return req.path
+    .replace(/\/[0-9a-f]{8,}/gi, '/:id')
+    .replace(/\/[0-9a-f-]{8,}/gi, '/:id')
+    .replace(/\/\d{5,}/g, '/:id');
+}
+
 // Middleware to follow response time
 app.use((req, res, next) => {
-  const end = httpRequestDurationMicroseconds.startTimer();
-  res.on("finish", () => {
-    end({ route: req.path, code: res.statusCode, method: req.method });
+  const end = httpRequestDuration.startTimer({ method: req.method });
+  res.on('finish', () => {
+    const route = normalizeRoute(req);
+    end({ route, code: res.statusCode });
   });
   next();
 });
