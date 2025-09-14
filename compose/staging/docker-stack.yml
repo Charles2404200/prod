@@ -8,9 +8,9 @@ services:
     #this one to pull from ghrc
     image: ghcr.io/apotato4325/rmit-store-backend:latest
     ports:
-      - "5000:5000"
+      - "8000:8000"
     environment:
-      - PORT=5000
+      - PORT=8000
       - MONGO_URI=mongodb+srv://RMIT_Store:123RMIT@rmitstore.uvixzgs.mongodb.net/?retryWrites=true&w=majority&appName=RMITStore
       - CLIENT_URL=http://54.242.180.228:3000
       - BASE_API_URL=api
