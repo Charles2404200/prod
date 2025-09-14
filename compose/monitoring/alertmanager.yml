@@ -1,10 +1,80 @@
+# prod/compose/monitoring/alertmanager.yml
+
+# This is the global configuration block. Settings here apply to everything
+# unless a more specific block overrides them.
+global:
+  # How long Alertmanager will wait before giving up on a notification. 5 minutes is a safe bet.
+  resolve_timeout: 5m
+
+  # --- Email Settings ---
+  # This is where we tell Alertmanager how to send emails.
+  # Make sure to replace the placeholders with your actual email server details.
+  smtp_smarthost: 'YOUR_SMTP_HOST:587' # Example: 'smtp.gmail.com:587' for Gmail
+  smtp_from: 'RMIT Store Alerts <YOUR_SENDER_EMAIL@example.com>' # This is the "From" address people will see
+  smtp_auth_username: 'YOUR_SMTP_USERNAME' # Usually your full email address
+  # IMPORTANT: For services like Gmail, you should generate an "App Password"
+  # instead of using your main account password. It's much more secure.
+  smtp_auth_password: 'YOUR_SMTP_PASSWORD'
+  smtp_require_tls: true # Encrypts the connection to the email server. Always a good idea.
+
+# You can define custom templates to make your alert emails look nicer.
+# We're just pointing to a directory where they would live.
+templates:
+- '/etc/alertmanager/template/*.tmpl'
+
+# This 'route' block is the brain of Alertmanager. It decides where alerts go.
+# It works like a tree: alerts start at the top and flow down.
 route:
-  receiver: 'team-email'
+  # If an alert doesn't match any of the specific 'routes' below,
+  # it will be sent to this 'receiver'. Think of it as our catch-all.
+  receiver: 'team-email-general'
+
+  # We group alerts together so we don't get spammed.
+  # Imagine 100 containers going down... you want ONE notification, not 100.
+  # This groups them by the alert name, the job (e.g., 'backend-prod-blue'), and severity.
+  group_by: ['alertname', 'job', 'severity']
+
+  # How long to wait and collect alerts for a group before sending the first notification.
+  # This helps bundle related issues together, like a high CPU and high memory alert from the same server.
+  group_wait: 30s
+
+  # If an issue isn't fixed, Alertmanager will send a reminder. This sets the time between reminders.
+  # We don't want to be nagged every 5 minutes, so 10m is reasonable.
+  repeat_interval: 10m
+
+  # Here you can define more specific routing rules.
+  # It's like setting up filters in your inbox.
+  routes:
+    # This is a special route for our most important alerts.
+    # Any alert with the label 'severity' set to 'critical' will match this.
+    - receiver: 'team-email-critical'
+      match:
+        severity: 'critical'
+      # 'continue: true' means that even after matching this, the alert will
+      # continue down the tree. If you want it to stop here, you'd remove this line.
+      continue: true
+
+# This is where we define what a 'receiver' actually is.
+# It's the "who" and "how" of sending a notification.
 receivers:
-  - name: 'team-email'
-    email_configs:
-      - to: "you@example.com"
-        from: "alert@example.com"
-        smarthost: "smtp.example.com:587"
-        auth_username: "smtp_user"
-        auth_password: "smtp_pass"
+  # This is for general, day-to-day alerts.
+- name: 'team-email-general'
+  email_configs:
+    # Who gets the email? You can add multiple addresses here.
+    # This should probably go to Tom or a general development team inbox.
+  - to: 'tom.developer@example.com'
+    # It's super helpful to get a "RESOLVED" notification when an issue is fixed.
+    # This tells Alertmanager to send one.
+    send_resolved: true
+
+  # A dedicated receiver for critical alerts that need immediate attention.
+- name: 'team-email-critical'
+  email_configs:
+    # For critical issues, we might want to notify more people,
+    # like a team lead or an on-call engineer.
+  - to: 'lead.developer@example.com, on-call.engineer@example.com'
+    send_resolved: true
+    # We can even customize the email headers to make it stand out.
+    # Here, we're making the subject line more urgent.
+    headers:
+      subject: '[CRITICAL] {{ .CommonAnnotations.summary }}'

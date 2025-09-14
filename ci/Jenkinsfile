@@ -27,6 +27,51 @@ pipeline {
         sh 'ls -la ws | head -n 30'
       }
     }
+ stage('Unit Tests (Fast Feedback)') {
+      steps {
+        script {
+          echo '--- Starting Unit Tests ---'
+          parallel(
+            'Backend Unit Tests': {
+              dir('ws/prod/server') {
+                sh 'npm install'
+                sh 'npm test'
+              }
+            },
+            'Frontend Unit Tests': {
+              dir('ws/prod/client') {
+                sh 'npm install'
+                sh 'npm test'
+              }
+            }
+          )
+        }
+      }
+    }
+
+    stage('Integration & E2E Tests') {
+      steps {
+        dir('ws/prod') {
+          script {
+            try {
+              echo '--- Starting environment with Docker Compose for E2E tests ---'
+              sh 'docker-compose -f compose/staging/docker-compose.yml up -d --build'
+
+              echo 'Waiting for services to be ready...'
+              sh 'sleep 30'
+
+              echo '--- Running Client E2E Tests ---'
+              dir('client') {
+                sh 'E2E_BASE_URL=http://localhost:3000 npm run test:e2e'
+              }
+            } finally {
+              echo '--- Tearing down Docker Compose environment ---'
+              sh 'docker-compose -f compose/staging/docker-compose.yml down'
+            }
+          }
+        }
+      }
+    }
 
     stage('Login to GHCR') {
       steps {

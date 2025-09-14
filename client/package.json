@@ -6,9 +6,9 @@
     "clean": "rimraf dist",
     "build": "npm run clean && cross-env NODE_ENV=production webpack --mode production --config webpack/webpack.prod.js",
     "dev": "cross-env NODE_ENV=development webpack-dev-server --config webpack/webpack.dev.js",
-    "test": "echo 'No server tests specified yet' && exit 0",
-    "test:unit": "echo 'Running unit tests...'",
-    "test:integration": "echo 'Running integration tests...'"
+    "test": "jest --config jest.config.js",
+    "test:e2e": "playwright test",
+    "test:all": "npm test && E2E_BASE_URL=http://localhost:3000 npm run test:e2e -- --headed"
   },
   "dependencies": {
     "@fontsource/poppins": "^4.5.9",
@@ -46,21 +46,32 @@
   "devDependencies": {
     "@babel/core": "^7.4.5",
     "@babel/plugin-proposal-class-properties": "^7.14.5",
-    "@babel/preset-env": "^7.4.5",
-    "@babel/preset-react": "^7.0.0",
+    "@babel/preset-env": "^7.28.3",
+    "@babel/preset-react": "^7.27.1",
+    "@playwright/test": "^1.55.0",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/jest-dom": "^5.17.0",
+    "@testing-library/react": "^12.1.5",
+    "@testing-library/user-event": "^14.6.1",
     "autoprefixer": "^9.6.0",
+    "babel-jest": "^27.5.1",
     "babel-loader": "^8.0.6",
     "chalk": "^2.4.2",
     "copy-webpack-plugin": "^5.0.3",
     "cross-env": "^5.2.1",
+    "cross-fetch": "^4.1.0",
     "css-loader": "^2.1.1",
     "cssnano": "^4.1.10",
     "dotenv-webpack": "^1.8.0",
     "file-loader": "^4.0.0",
     "html-webpack-plugin": "^3.2.0",
+    "identity-obj-proxy": "^3.0.0",
+    "jest": "^27.5.1",
     "mini-css-extract-plugin": "^0.7.0",
+    "msw": "^2.11.2",
     "optimize-css-assets-webpack-plugin": "^5.0.1",
     "postcss-loader": "^3.0.0",
+    "puppeteer": "^24.20.0",
     "rimraf": "^2.6.3",
     "sass-loader": "^10.2.0",
     "style-loader": "^0.23.1",
@@ -69,6 +80,8 @@
     "webpack-cli": "^3.3.12",
     "webpack-dev-server": "^3.11.2",
     "webpack-merge": "^4.2.1",
-    "webpack-pwa-manifest": "^4.0.0"
+    "webpack-pwa-manifest": "^4.0.0",
+    "whatwg-fetch": "^3.6.20",
+    "zod": "^4.1.8"
   }
 }

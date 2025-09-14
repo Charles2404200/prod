@@ -1,0 +1,61 @@
+groups:
+- name: host-alerts
+  rules:
+  - alert: HostHighCpuLoad
+    expr: 100 - (avg by(instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Host high CPU load (instance {{ $labels.instance }})"
+      description: "CPU load is > 80% for 5 minutes."
+
+  - alert: HostHighMemoryLoad
+    expr: (node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes * 100 > 85
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Host high memory load (instance {{ $labels.instance }})"
+      description: "Memory usage is > 85% for 5 minutes."
+
+  - alert: HostLowDiskSpace
+    expr: (node_filesystem_avail_bytes * 100) / node_filesystem_size_bytes < 10
+    for: 5m
+    labels:
+      severity: critical
+    annotations:
+      summary: "Host low disk space (instance {{ $labels.instance }})"
+      description: "Disk space is less than 10% on instance {{ $labels.instance }}."
+
+- name: service-alerts
+  rules:
+  - alert: InstanceDown
+    expr: up == 0
+    for: 1m
+    labels:
+      severity: critical
+    annotations:
+      summary: "Instance {{ $labels.instance }} down"
+      description: "{{ $labels.instance }} of job {{ $labels.job }} has been down for more than 1 minute."
+
+- name: application-alerts
+  rules:
+
+  - alert: HighHttp5xxErrorRate
+    expr: sum(rate(http_requests_total{status=~"5.*"}[5m])) by (job) / sum(rate(http_requests_total[5m])) by (job) * 100 > 5
+    for: 5m
+    labels:
+      severity: critical
+    annotations:
+      summary: "High HTTP 5xx error rate on {{ $labels.job }}"
+      description: "More than 5% of requests are returning 5xx errors for the last 5 minutes."
+
+  - alert: HighApiLatency
+    expr: histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[5m])) by (le, job)) > 1
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "High API Latency on {{ $labels.job }}"
+      description: "The 99th percentile of request latency is over 1 second for the last 5 minutes."

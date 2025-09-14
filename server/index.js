@@ -41,8 +41,6 @@ setupDB();
 // Configure Passport.js for authentication
 require("./config/passport")(app);
 
-// Use the defined routes for handling requests
-app.use(routes);
 
 // Create Registry to register metrics
 const register = new client.Registry();
@@ -52,7 +50,7 @@ register.setDefaultLabels({
 });
 client.collectDefaultMetrics({ register });
 
-// Ceate a histogram
+// Create a histogram to monitor request durations
 const httpRequestDurationMicroseconds = new client.Histogram({
   name: "http_request_duration_ms",
   help: "Duration of HTTP requests in ms",
@@ -63,7 +61,7 @@ const httpRequestDurationMicroseconds = new client.Histogram({
 // Register histogram
 register.registerMetric(httpRequestDurationMicroseconds);
 
-// Middleware to follow response time
+// Middleware to track response time
 app.use((req, res, next) => {
   const end = httpRequestDurationMicroseconds.startTimer();
   res.on("finish", () => {
@@ -72,7 +70,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// Define endpoint /metrics for Prometheus can be scrape
+// Define /metrics endpoint for Prometheus to scrape
 app.get("/metrics", async (req, res) => {
   try {
     res.set("Content-Type", register.contentType);
@@ -81,6 +79,7 @@ app.get("/metrics", async (req, res) => {
     res.status(500).end(ex);
   }
 });
+app.use(routes);
 
 // Start the server and listen on the specified port
 const server = app.listen(port, '0.0.0.0', () => {
