@@ -15,8 +15,8 @@ pipeline {
   }
 
   stages {
-
     stage('Checkout into ws/') {
+      echo 'Starting Checkout into ws/ 🟢'
       steps {
         sh 'rm -rf ws && mkdir -p ws'
         checkout([$class: 'GitSCM',
@@ -29,16 +29,18 @@ pipeline {
     }
 
     stage('Login to GHCR') {
+      echo 'Starting Login to GHCR 🟢'
       steps {
         withCredentials([ usernamePassword(credentialsId: 'GHCR_USER',
                                            usernameVariable: 'GH_USER',
                                            passwordVariable: 'GH_TOKEN') ]) {
           sh 'echo "$GH_TOKEN" | docker login ghcr.io -u "$GH_USER" --password-stdin'
-        }
+                                           }
       }
     }
 
     stage('Build & Push Images (FE/BE/DB)') {
+      echo 'Starting Build & Push Images (FE/BE/DB) 🟢'
       steps {
         dir('ws') {
           script {
@@ -84,9 +86,10 @@ pipeline {
       }
     }
 
-stage('Deploy with Ansible (Swarm + NGINX on EC2 via SSH)') {
-  steps {
-    withCredentials([
+    stage('Deploy with Ansible (Swarm + NGINX on EC2 via SSH)') {
+      echo 'Starting Deploy with Ansible (Swarm + NGINX on EC2 via SSH) 🟢'
+      steps {
+        withCredentials([
       usernamePassword(
         credentialsId: 'GHCR_USER',
         usernameVariable: 'GH_USER',
@@ -98,8 +101,8 @@ stage('Deploy with Ansible (Swarm + NGINX on EC2 via SSH)') {
         usernameVariable: 'CREDS_USER'     // we won't use this username
       )
     ]) {
-      dir('ws') {
-        sh '''#!/usr/bin/env bash
+          dir('ws') {
+            sh '''#!/usr/bin/env bash
 set -euo pipefail
 
 INVENTORY="${INVENTORY:-infra/ansible/inventory.ini}"
@@ -153,14 +156,14 @@ ansible-playbook -i "${INVENTORY}" "${PLAYBOOK}" \
 
 echo "✓ Swarm deploy finished."
 '''
+          }
+    }
       }
     }
-  }
-}
   }
 
   post {
     success { echo "✅ ${env.APP_NAME} ${env.IMAGE_TAG} built & deployed to Swarm (host Nginx on :80)." }
-    failure { echo "❌ Pipeline failed. Check console log." }
+    failure { echo '❌ Pipeline failed. Check console log.' }
   }
 }
