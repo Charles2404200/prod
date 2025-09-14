@@ -41,7 +41,7 @@ pipeline {
 
     stage('Build & Push Images (FE/BE/DB)') {
       steps {
-        echo 'Starting Build & Push Images (FE/BE/DB) 🟢'
+        echo 'Starting Build & Push Images (FE /BE /DB) 🟢'
         dir('ws') {
           script {
             def ns  = params.GHCR_NAMESPACE.toLowerCase().replaceAll(/[^a-z0-9-]/, '')
