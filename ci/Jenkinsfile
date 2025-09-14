@@ -28,7 +28,7 @@ pipeline {
       }
     }
 
-    // --- STAGE DUY NHẤT ĐƯỢC CHẠY ---
+    // --- Các stage sẽ chạy ---
     stage('Unit Tests (Fast Feedback)') {
       steps {
         script {
@@ -73,8 +73,7 @@ pipeline {
         }
       }
     }
- /*
-
+   /*  
     stage('Login to GHCR') {
       steps {
         withCredentials([ usernamePassword(credentialsId: 'GHCR_USER',
@@ -89,7 +88,7 @@ pipeline {
       steps {
         dir('ws') {
           script {
-            def ns  = params.GHCR_NAMESPACE.toLowerCase().replaceAll(/[^a-z0-9-]/, '')
+            def ns  = params.GHCR_NAMESPACE.toLowerCase().replaceAll(/[^a-z0--9-]/, '')
             def TAG = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
 
             def BACKEND  = "ghcr.io/${ns}/rmit-store-backend"
@@ -140,9 +139,9 @@ pipeline {
             passwordVariable: 'GH_TOKEN'
           ),
           sshUserPrivateKey(
-            credentialsId: 'jenkins-ec2-key', // <-- your screenshot credential
+            credentialsId: 'jenkins-ec2-key',
             keyFileVariable: 'ANSIBLE_KEY',
-            usernameVariable: 'CREDS_USER'     // we won't use this username
+            usernameVariable: 'CREDS_USER'
           )
         ]) {
           dir('ws') {
@@ -152,7 +151,6 @@ pipeline {
     INVENTORY="${INVENTORY:-infra/ansible/inventory.ini}"
     PLAYBOOK="${PLAYBOOK:-infra/ansible/site.yml}"
 
-    # Force the real EC2 SSH user. Change to 'ubuntu' if your AMI is Ubuntu.
     SSH_USER="ec2-user"
 
     echo "Workspace: $(pwd)"
@@ -162,7 +160,6 @@ pipeline {
 
     export PATH="$HOME/.local/bin:$PATH"
 
-    # Ensure Ansible
     if ! command -v ansible-playbook >/dev/null 2>&1; then
       if command -v yum >/dev/null 2>&1; then
         sudo yum install -y python3-pip || true
@@ -172,6 +169,40 @@ pipeline {
       python3 -m pip install --user "ansible>=9,<10"
     fi
 
-    # Preflight: SSH to localhost with the key as the right user
     echo "Preflight SSH → ${SSH_USER}@127.0.0.1"
-    ssh -i "$ANSIBLE_KEY" -o StrictHostKeyChecking=no -o Batch
+    ssh -i "$ANSIBLE_KEY" -o StrictHostKeyChecking=no -o BatchMode=yes \
+        "${SSH_USER}@127.0.0.1" 'echo "SSH ok: $(whoami) on $(hostname)"'
+
+    echo "$GH_TOKEN" | docker login ghcr.io -u "$GH_USER" --password-stdin
+
+    export ANSIBLE_STDOUT_CALLBACK=yaml
+    export ANSIBLE_HOST_KEY_CHECKING=False
+
+    ansible-playbook -i "${INVENTORY}" "${PLAYBOOK}" \
+      -l build \
+      --private-key "${ANSIBLE_KEY}" \
+      -u "${SSH_USER}" \
+      -e "frontend_image=${FRONTEND_IMAGE}" \
+      -e "backend_image=${BACKEND_IMAGE}" \
+      -e "db_image=${DB_IMAGE}" \
+      -e "image_tag=${IMAGE_TAG}" \
+      -e "app_name=${APP_NAME}" \
+      -e "env=staging" \
+      -e "ghcr_user=${GH_USER}" \
+      -e "ghcr_token=${GH_TOKEN}" \
+      -e "frontend_published=18080" \
+      -e "backend_published=13000"
+
+    echo "✓ Swarm deploy finished."
+    '''
+          }
+        }
+      }
+    }
+  }
+
+  post {
+    success { echo "✅ Pipeline finished successfully." }
+    failure { echo "❌ Pipeline failed. Check console log." }
+  }
+}
