@@ -374,7 +374,7 @@ pipeline {
                     withCredentials([string(credentialsId: 'long-GHRC_PAT', variable: 'GH_TOKEN')]) {
                         sh """
                             # Ensure GHCR login for pulling images
-                            echo "$GH_TOKEN" | docker login ghcr.io -u ${GHCR_USER} --password-stdin || true
+                            echo "$GH_TOKEN" | docker login ghcr.io -u $GHCR_USER --password-stdin || true
 
                             # Run Ansible playbook from the Jenkins workspace
                             export ANSIBLE_STDOUT_CALLBACK=yaml
