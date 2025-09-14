@@ -368,6 +368,7 @@ pipeline {
             }
         }
 
+        //there is a fucking problem with the playbook bc if i delete it my docker builds normally
         stage('Deploy with Ansible on EC2') {
             steps {
                 sshagent(credentials: [SSH_CREDENTIAL_ID]) {
