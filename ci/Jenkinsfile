@@ -29,8 +29,8 @@ pipeline {
     }
 
     stage('Login to GHCR') {
-      echo 'Starting Login to GHCR 🟢'
       steps {
+        echo 'Starting Login to GHCR 🟢'
         withCredentials([ usernamePassword(credentialsId: 'GHCR_USER',
                                            usernameVariable: 'GH_USER',
                                            passwordVariable: 'GH_TOKEN') ]) {
