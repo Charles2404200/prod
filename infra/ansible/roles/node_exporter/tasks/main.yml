@@ -29,7 +29,7 @@
     name: node_exporter
     state: absent
     force_kill: yes
-    # only use docker_host if defined
+    #only use docker_host if defined
     docker_host: "{{ docker_host | default(omit) }}"
   become: yes
 
