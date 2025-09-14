@@ -16,8 +16,8 @@ pipeline {
 
   stages {
     stage('Checkout into ws/') {
-      echo 'Starting Checkout into ws/ 🟢'
       steps {
+        echo 'Starting Checkout into ws/ 🟢'
         sh 'rm -rf ws && mkdir -p ws'
         checkout([$class: 'GitSCM',
           branches: [[name: "*/${params.BRANCH_TO_BUILD}"]],
@@ -40,8 +40,8 @@ pipeline {
     }
 
     stage('Build & Push Images (FE/BE/DB)') {
-      echo 'Starting Build & Push Images (FE/BE/DB) 🟢'
       steps {
+        echo 'Starting Build & Push Images (FE/BE/DB) 🟢'
         dir('ws') {
           script {
             def ns  = params.GHCR_NAMESPACE.toLowerCase().replaceAll(/[^a-z0-9-]/, '')
@@ -87,8 +87,8 @@ pipeline {
     }
 
     stage('Deploy with Ansible (Swarm + NGINX on EC2 via SSH)') {
-      echo 'Starting Deploy with Ansible (Swarm + NGINX on EC2 via SSH) 🟢'
       steps {
+        echo 'Starting Deploy with Ansible (Swarm + NGINX on EC2 via SSH) 🟢'
         withCredentials([
       usernamePassword(
         credentialsId: 'GHCR_USER',
