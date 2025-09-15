@@ -8,8 +8,6 @@ services:
       - MONGO_URI=mongodb+srv://RMIT_Store:123RMIT@rmitstore.uvixzgs.mongodb.net/?retryWrites=true&w=majority&appName=RMITStore
       - CLIENT_URL=http://54.242.180.228:8080
       - BASE_API_URL=api
-    depends_on:
-      - mongo
     networks:
       - rmit-network
     deploy:
@@ -18,11 +16,13 @@ services:
         condition: on-failure
       placement:
         constraints: [node.role == manager]
-      endpoint_spec:
-        mode: vip
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 512M
       ports:
-        - target: 3000
-          published: 3000
+        - published: 3000
+          target: 3000
           protocol: tcp
           mode: host
 
@@ -30,8 +30,6 @@ services:
     image: ghcr.io/apotato4325/rmit-store-frontend:latest
     environment:
       - REACT_APP_API_URL=http://54.242.180.228:3000/api
-    depends_on:
-      - backend
     networks:
       - rmit-network
     deploy:
@@ -40,10 +38,8 @@ services:
         condition: on-failure
       placement:
         constraints: [node.role == manager]
-      endpoint_spec:
-        mode: vip
       ports:
-        - target: 80
-          published: 8080
+        - published: 8080
+          target: 80
           protocol: tcp
           mode: host
