@@ -8,11 +8,11 @@ services:
     #this one to pull from ghrc
     image: ghcr.io/apotato4325/rmit-store-backend:latest
     ports:
-      - "3000:80"
+      - "3000:3000"
     environment:
       - PORT=3000
       - MONGO_URI=mongodb+srv://RMIT_Store:123RMIT@rmitstore.uvixzgs.mongodb.net/?retryWrites=true&w=majority&appName=RMITStore
-      - CLIENT_URL=http://54.242.180.228:3000
+      - CLIENT_URL=http://54.242.180.228:8080
       - BASE_API_URL=api
     depends_on:
       - mongo
@@ -29,7 +29,7 @@ services:
     ports:
       - "8080:80"
     environment:
-      - REACT_APP_API_URL=http://54.242.180.228:8080
+      - REACT_APP_API_URL=http://54.242.180.228:3000
     depends_on:
       - backend
     deploy:
