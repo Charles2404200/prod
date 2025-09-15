@@ -39,6 +39,8 @@ services:
       - BASE_API_URL=api
     depends_on:
       - mongo
+    networks:
+      - rmit-network
 
   frontend:
     #build:
@@ -55,6 +57,8 @@ services:
       - REACT_APP_API_URL=http://54.242.180.228:3000/api
     depends_on:
       - backend
+    networks:
+      - rmit-network
 
   mongo:
     image: mongo:5
@@ -63,6 +67,12 @@ services:
       - "27017:27017"
     volumes:
       - mongo_data:/data/db
+    networks:
+      - rmit-network
 
 volumes:
   mongo_data:
+
+networks:
+  rmit-network:
+    driver: bridge
