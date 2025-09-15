@@ -1,8 +1,75 @@
 version: "3.9"
 #im not sure if this is supposed to be here or other folders but leave for now
+
+# services:
+#   backend:
+#     #context:
+#     #dockerfile:
+#     #this one to pull from ghrc
+#     image: ghcr.io/apotato4325/rmit-store-backend:latest
+#     ports:
+#       - "3000:3000"
+#     environment:
+#       - PORT=3000
+#       - MONGO_URI=mongodb+srv://RMIT_Store:123RMIT@rmitstore.uvixzgs.mongodb.net/?retryWrites=true&w=majority&appName=RMITStore
+#       - CLIENT_URL=http://54.242.180.228:8080
+#       - BASE_API_URL=api
+#     depends_on:
+#       - mongo
+#     networks:
+#       - rmit-network
+#     deploy:
+#       replicas: 1
+#       restart_policy:
+#         condition: on-failure
+
+#   frontend:
+#     #context:
+#     #dockerfile:
+#     #this one to pull from ghrc
+#     image: ghcr.io/apotato4325/rmit-store-frontend:latest
+#     ports:
+#       - "8080:80"
+#     environment:
+#       - REACT_APP_API_URL=http://backend:3000/api
+#     depends_on:
+#       - backend
+#     networks:
+#       - rmit-network
+#     deploy:
+#       replicas: 1
+#       restart_policy:
+#         condition: on-failure
+
+#   mongo:
+#     image: mongo:5
+#     ports:
+#       - "27017:27017"
+#     volumes:
+#       - mongo_data:/data/db
+#     networks:
+#       - rmit-network
+#     deploy:
+#       replicas: 1
+#       restart_policy:
+#         condition: on-failure
+
+# volumes:
+#   mongo_data:
+
+# networks:
+#   rmit-network:
+#     driver: overlay
+
+
+
+version: "3.9"
+
 services:
   backend:
     image: ghcr.io/apotato4325/rmit-store-backend:latest
+    ports:
+      - "3000:3000"    # published:target → keep here, not inside deploy
     environment:
       - PORT=3000
       - MONGO_URI=mongodb+srv://RMIT_Store:123RMIT@rmitstore.uvixzgs.mongodb.net/?retryWrites=true&w=majority&appName=RMITStore
@@ -16,20 +83,13 @@ services:
         condition: on-failure
       placement:
         constraints: [node.role == manager]
-      resources:
-        limits:
-          cpus: "0.50"
-          memory: 512M
-      ports:
-        - published: 3000
-          target: 3000
-          protocol: tcp
-          mode: host
 
   frontend:
     image: ghcr.io/apotato4325/rmit-store-frontend:latest
+    ports:
+      - "8080:80"
     environment:
-      - REACT_APP_API_URL=http://54.242.180.228:3000/api
+      - REACT_APP_API_URL=http://backend:3000/api
     networks:
       - rmit-network
     deploy:
@@ -38,8 +98,23 @@ services:
         condition: on-failure
       placement:
         constraints: [node.role == manager]
-      ports:
-        - published: 8080
-          target: 80
-          protocol: tcp
-          mode: host
+
+  mongo:
+    image: mongo:5
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - rmit-network
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+
+volumes:
+  mongo_data:
+
+networks:
+  rmit-network:
+    driver: overlay
