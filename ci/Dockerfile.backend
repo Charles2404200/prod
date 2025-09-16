@@ -4,7 +4,7 @@ FROM node:18-alpine
 WORKDIR /app
 COPY server/package*.json ./server/
 WORKDIR /app/server
-RUN npm install
+RUN npm ci
 COPY server/ .
 #expose the port your backend listens on (change if you guys want/need to)
 EXPOSE 3000
