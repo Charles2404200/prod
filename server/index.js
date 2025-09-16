@@ -41,6 +41,18 @@ setupDB();
 // Configure Passport.js for authentication
 require("./config/passport")(app);
 
+// simple root page
+app.get('/', (req, res) => {
+  res.send('Backend is running. Try /api/health or /metrics.');
+});
+
+// lightweight health check
+app.get('/api/health', (req, res) => {
+  res.json({
+    ok: true,
+    dbState: require('mongoose').connection.readyState, // 0=disconnected,1=connected,2=connecting,3=disconnecting
+  });
+});
 // Use the defined routes for handling requests
 app.use(routes);
 
