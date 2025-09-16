@@ -54,7 +54,7 @@ services:
       - "8080:80"
     environment:
     #docker ip is now elastic so no need to change
-      - REACT_APP_API_URL=http://backend:3000/api
+      - REACT_APP_API_URL=http://backend:3000
     depends_on:
       - backend
     networks:
