@@ -9,6 +9,9 @@ docker compose down
 deletes cached build:
 docker builder prune -a
 
+remove docker stack:
+docker rm mystack
+
 deploy docker swarm:
 docker stack deploy -c docker-stack.yml mystack
 docker stack services mystack
