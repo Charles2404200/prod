@@ -83,7 +83,7 @@ app.get("/metrics", async (req, res) => {
 });
 
 // Start the server and listen on the specified port
-const server = app.listen(port, '0.0.0.0', () => {
+const server = app.listen(port, '54.242.180.228', () => {
   console.log(
     `${chalk.green('✓')} ${chalk.blue(
       `Listening on port ${port}. Visit http://localhost:${port}/ in your browser.`
