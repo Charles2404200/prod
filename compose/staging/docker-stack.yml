@@ -78,7 +78,7 @@ services:
     networks:
       - rmit-network
     deploy:
-      replicas: 1
+      replicas: 3
       restart_policy:
         condition: on-failure
       placement:
@@ -93,7 +93,7 @@ services:
     networks:
       - rmit-network
     deploy:
-      replicas: 1
+      replicas: 3
       restart_policy:
         condition: on-failure
       placement:
