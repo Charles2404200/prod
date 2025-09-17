@@ -17,5 +17,12 @@ docker stack deploy -c docker-stack.yml mystack
 docker stack services mystack
 docker service logs mystack_backend
 
+build images and push:
+docker build -f ci/Dockerfile.backend -t ghcr.io/apotato4325/rmit-store-backend:latest .
+docker push ghcr.io/apotato4325/rmit-store-backend:latest
+
+docker build -f ci/Dockerfile.frontend -t ghcr.io/apotato4325/rmit-store-frontend:latest .
+docker push ghcr.io/apotato4325/rmit-store-frontend:latest
+
 check docker images:
 docker images | egrep 'rmit-store-(frontend|backend)'
