@@ -9,6 +9,9 @@ docker compose down
 deletes cached build:
 docker builder prune -a
 
+pull images
+docker compose pull
+
 remove docker stack:
 docker stack rm mystack
 

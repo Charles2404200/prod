@@ -359,11 +359,40 @@ pipeline {
                 }
             }
         }
+
         //can remove once testing is done
         stage('Test SSH to EC2') {
             steps {
                 sshagent(credentials: [SSH_CREDENTIAL_ID]) {
                     sh "ssh -o StrictHostKeyChecking=no ec2-user@${DOCKER_EC2_IP} 'echo ✅ Connected via Jenkinscd por'"
+                }
+            }
+        }
+
+        stage('Deploy to EC2 (Docker Swarm)') {
+            steps {
+                sshagent(credentials: [SSH_CREDENTIAL_ID]) {
+                    withCredentials([string(credentialsId: 'long-GHRC_PAT', variable: 'GH_TOKEN')]) {
+                        sh """
+                            ssh -o StrictHostKeyChecking=no ec2-user@${DOCKER_EC2_IP} '
+                                echo "$GH_TOKEN" | docker login ghcr.io -u ${GHCR_USER} --password-stdin || true
+                                cd /home/ec2-user/prod/compose/staging || exit 1
+
+                                #initialize swarm if not already
+                                docker swarm init --advertise-addr ${DOCKER_EC2_IP} || true
+
+                                #remove old stack (clean deploy)
+                                docker stack rm mystack || true
+                                sleep 10
+
+                                #deploy fresh
+                                docker stack deploy -c docker-stack.yml mystack --with-registry-auth
+
+                                #show status
+                                docker stack services mystack
+                            '
+                        """
+                    }
                 }
             }
         }
