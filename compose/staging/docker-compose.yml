@@ -36,7 +36,7 @@ services:
       - JWT_SECRET=my_secret_string
       #docker ip is now elastic so no need to change
       - CLIENT_URL=http://localhost:8080
-      - BASE_API_URL=api
+      - BASE_API_URL=/api
     depends_on:
       - mongo
     networks:
