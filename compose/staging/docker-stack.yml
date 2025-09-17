@@ -72,7 +72,7 @@ services:
       - "3000:3000"
     environment:
       - PORT=3000
-      - MONGO_URI=mongodb://mongo:27017/rmit_ecommerce
+      - MONGO_URI=mongodb://localhost:27017/rmit_ecommerce
       - CLIENT_URL=http://54.242.180.228:8080
       - BASE_API_URL=api
     networks:
