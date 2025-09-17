@@ -1,4 +1,5 @@
-FROM node:18-alpine
+#FROM node:18-alpine
+FROM ubuntu:22.04
 
 #Set a non-interactive environment for apt-get commands
 ENV DEBIAN_FRONTEND=noninteractive
