@@ -1,4 +1,4 @@
-#FROM node:18-alpine
+#Start with a base image that has a full OS, like Ubuntu
 FROM ubuntu:22.04
 
 #Set a non-interactive environment for apt-get commands
@@ -8,7 +8,20 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y nodejs npm
 
 #Install MongoDB
-RUN apt-get install -y mongodb
+RUN apt-get install -y gnupg curl
+
+#Add MongoDB's GPG key
+RUN curl -fsSL https://www.mongodb.org/static/pgp/server-6.0.asc | gpg --dearmor -o /etc/apt/keyrings/mongodb-archive-keyring.gpg
+
+#Add the MongoDB repository to the source list
+RUN echo "deb [ signed-by=/etc/apt/keyrings/mongodb-archive-keyring.gpg ] https://repo.mongodb.org/apt/ubuntu jammy/mongodb-org/6.0 multiverse" | tee /etc/apt/sources.list.d/mongodb-org-6.0.list
+
+#Update the package lists to include the new repository
+RUN apt-get update
+
+# Now install MongoDB
+RUN apt-get install -y mongodb-org
+
 
 WORKDIR /app
 COPY server/package*.json ./server/
