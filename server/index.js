@@ -1,5 +1,5 @@
 // Load environment variables from a .env file into process.env
-//require("dotenv").config();
+require("dotenv").config();
 
 // Import required modules
 const express = require("express");
