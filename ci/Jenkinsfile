@@ -304,11 +304,22 @@
 
 //DOCKER AND ANSIBLE INTEGRATION
 pipeline {
-    agent any
+   agent {
+    docker {
+      image 'cimg/node:20.14'
+      reuseNode true
+      args '-u 0:0 -v /var/run/docker.sock:/var/run/docker.sock -e HOME=.'
+    }
+   }
+  options { skipDefaultCheckout(true) }
 
     parameters {
         string(name: 'GHCR_NAMESPACE', defaultValue: 'apotato4325', description: 'GHCR namespace (user/org)')
         string(name: 'BRANCH_TO_BUILD', defaultValue: 'docker', description: 'Git branch to build')
+        string(name: 'DEPLOY_LIMIT', defaultValue: 'localhost', description: 'Ansible --limit (use localhost to deploy on Jenkins host)')
+        booleanParam(name: 'DEPLOY_MONITORING', defaultValue: false, description: 'Deploy Prometheus & Grafana monitoring stack')
+        string(name: 'PROM_HOST_PORT', defaultValue: '9091', description: 'Host port to expose Prometheus UI')
+        string(name: 'PUBLIC_HOST', defaultValue: '54.163.245.207', description: 'Public IP/DNS của Jenkins host để tạo link Prometheus/Grafana')
     }
 
     environment {
@@ -321,15 +332,145 @@ pipeline {
         GHCR_USER = 'apotato4325'
         PLAYBOOK = '/home/ec2-user/prod/infra/ansible/site.yml'
         INVENTORY = '/home/ec2-user/prod/infra/ansible/inventory.ini'
+        WS_DIR   = "ws-${env.JOB_NAME.replaceAll('[^A-Za-z0-9_.-]','_')}-${env.BUILD_NUMBER}"
     }
 
-    stages {
-        stage('Checkout') {
-            steps {
-                git branch: "${params.BRANCH_TO_BUILD}", credentialsId: 'long-github-creds', url: 'https://github.com/APotato4325/rmit-store-backend_frontend.git'
-            }
-        }
+  stages {
+    stage('Checkout into ws/') {
+      steps {
+        echo "Starting Checkout into ${WS_DIR} 🟢"
+        sh 'rm -rf ws && mkdir -p ws'
+        checkout([
+          $class: 'GitSCM',
+          branches: [[name: "*/${params.BRANCH_TO_BUILD}"]],
+          userRemoteConfigs: [[url: 'https://github.com/Charles2404200/prod']],
+          extensions: [[$class: 'RelativeTargetDirectory', relativeTargetDir: "${WS_DIR}"]]
+        ])
+        sh 'ls -la "$WS_DIR" | head -n 30'
+      }
+    }
+        stage('Unit Tests') {
+      parallel {
+        stage('Frontend: Unit Tests') {
+          steps {
+            dir("${WS_DIR}/client") {
+              sh '''#!/bin/bash
+                set -euo pipefail
+                echo "🔧 FE pre-clean..."
+                rm -rf node_modules
+                mkdir -p .npm .puppeteer-cache
+                export npm_config_cache="$PWD/.npm"
+                export PUPPETEER_CACHE_DIR="$PWD/.puppeteer-cache"
+                export PUPPETEER_DOWNLOAD_PATH="$PWD/.puppeteer-cache"
 
+                echo "📦 FE install..."
+                npm install --no-audit --no-fund --prefer-offline
+
+                echo "🧪 FE unit tests..."
+                npm test -- --ci --runInBand
+              '''
+            }
+          }
+        }
+    stage('Backend: Unit Tests') {
+          steps {
+            dir("${WS_DIR}/server") {
+              sh '''#!/bin/bash
+                set -euo pipefail
+                echo "🔧 BE pre-clean..."
+                rm -rf node_modules
+                mkdir -p .npm
+                export npm_config_cache="$PWD/.npm"
+
+                echo "📦 BE install..."
+                npm install --no-audit --no-fund --prefer-offline
+
+                echo "🧪 BE unit tests..."
+                npm test -- --ci --runInBand
+              '''
+            }
+          }
+        }
+      }
+    }
+
+stage('Deploy Monitoring (CI host)') {
+  when { expression { return params.DEPLOY_MONITORING } }
+  steps {
+    sh '''#!/usr/bin/env bash
+      set -euo pipefail
+      echo "[DEBUG] whoami=$(whoami); pwd=$(pwd)"
+
+      if docker compose version >/dev/null 2>&1; then
+        DC="docker compose"
+      elif command -v docker-compose >/dev/null 2>&1; then
+        DC="docker-compose"
+      else
+        echo "[ERROR] Docker Compose not found"; exit 1
+      fi
+
+      docker network inspect rmit-network >/dev/null 2>&1 || docker network create rmit-network || true
+
+      export PROM_HOST_PORT="${PROM_HOST_PORT:-9091}"
+      COMPOSE_FILE="${WORKSPACE}/${WS_DIR}/compose/monitoring/docker-compose.yml"
+      [ -f "$COMPOSE_FILE" ] || { echo "[ERROR] Missing $COMPOSE_FILE"; ls -la "${WORKSPACE}/${WS_DIR}/compose/monitoring" || true; exit 1; }
+
+      echo "[INFO] Bringing up monitoring stack..."
+      $DC -f "$COMPOSE_FILE" down || true
+      $DC -f "$COMPOSE_FILE" up -d --remove-orphans
+
+      wait_healthy() {
+        local name="$1" max="$2" i status
+        echo "[INFO] Waiting for $name (health=healthy)..."
+        for i in $(seq 1 "$max"); do
+          status="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{end}}' "$name" 2>/dev/null || true)"
+          if [ "$status" = "healthy" ]; then
+            echo "[OK] $name healthy"
+            return 0
+          fi
+
+          if [ -z "$status" ]; then
+            case "$name" in
+              prometheus)
+                if docker run --rm --network container:prometheus curlimages/curl:8.9.1 -fsS \
+                   http://127.0.0.1:9090/-/ready >/dev/null; then
+                  echo "[OK] $name ready (endpoint)"
+                  return 0
+                fi
+                ;;
+              grafana)
+                if docker run --rm --network container:grafana curlimages/curl:8.9.1 -sS \
+                   http://127.0.0.1:3000/api/health | grep -Eq '"status":"ok"|"database":"ok"'; then
+                  echo "[OK] $name healthy (endpoint)"
+                  return 0
+                fi
+                ;;
+            esac
+          fi
+
+          if (( i % 10 == 0 )); then
+            echo "  - $name health='${status:-none}' (retry $i/$max) — tail logs:"
+            docker logs --tail=80 "$name" || true
+          fi
+          sleep 2
+        done
+        echo "[ERROR] $name NOT healthy after ${max} tries"
+        return 1
+      }
+
+      wait_healthy prometheus 60
+      wait_healthy grafana 90
+
+      echo "[OK] Prometheus & Grafana are up."
+      docker ps --format "table {{.Names}}\\t{{.Status}}\\t{{.Ports}}"
+
+      HOST="${PUBLIC_HOST:-$(hostname -I | awk '{print $1}')}"
+      echo "Prometheus URL: http://${HOST}:${PROM_HOST_PORT}"
+      echo "Grafana   URL: http://${HOST}:3003"
+    '''
+      }
+    }
+  
         stage('Build & Push Images') {
             steps {
                 withCredentials([string(credentialsId: 'long-GHRC_PAT', variable: 'GH_TOKEN')]) {
@@ -360,7 +501,6 @@ pipeline {
             }
         }
 
-        //can remove once testing is done
         stage('Test SSH to EC2') {
             steps {
                 sshagent(credentials: [SSH_CREDENTIAL_ID]) {

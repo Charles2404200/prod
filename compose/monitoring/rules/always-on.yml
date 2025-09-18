@@ -1,0 +1,11 @@
+groups:
+  - name: sanity
+    rules:
+      - alert: AlwaysFiring
+        expr: vector(1)
+        for: 1m
+        labels:
+          severity: info
+        annotations:
+          summary: "Sanity alert"
+          description: "This alert should always fire (for wiring verification)"

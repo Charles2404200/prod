@@ -1,10 +1,40 @@
+
+global:
+  resolve_timeout: 5m
+
+  smtp_smarthost: 'YOUR_SMTP_HOST:587' 
+  smtp_from: 'RMIT Store Alerts <YOUR_SENDER_EMAIL@example.com>'
+  smtp_auth_username: 'YOUR_SMTP_USERNAME' 
+  smtp_auth_password: 'YOUR_SMTP_PASSWORD'
+  smtp_require_tls: true 
+
+templates:
+- '/etc/alertmanager/template/*.tmpl'
+
 route:
-  receiver: 'team-email'
+ 
+  receiver: 'team-email-general'
+  group_by: ['alertname', 'job', 'severity']
+
+  group_wait: 30s
+
+  repeat_interval: 10m
+
+  routes:
+    - receiver: 'team-email-critical'
+      match:
+        severity: 'critical'
+      continue: true
+
 receivers:
-  - name: 'team-email'
-    email_configs:
-      - to: "you@example.com"
-        from: "alert@example.com"
-        smarthost: "smtp.example.com:587"
-        auth_username: "smtp_user"
-        auth_password: "smtp_pass"
+- name: 'team-email-general'
+  email_configs:
+  - to: 'tom.developer@example.com'
+    send_resolved: true
+
+- name: 'team-email-critical'
+  email_configs:
+  - to: 'lead.developer@example.com, on-call.engineer@example.com'
+    send_resolved: true
+    headers:
+      subject: '[CRITICAL] {{ .CommonAnnotations.summary }}'
