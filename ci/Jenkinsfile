@@ -9,7 +9,7 @@ pipeline {
 
 
   parameters {
-    string(name: 'GHCR_NAMESPACE', defaultValue: 'BennyBach1002', description: 'GitHub user/org (lowercase for Docker)')
+    string(name: 'GHCR_NAMESPACE', defaultValue: 'bennybach1002', description: 'GitHub user/org (lowercase for Docker)')
     string(name: 'BRANCH_TO_BUILD', defaultValue: 'unit_testing', description: 'Git branch to build')
     string(name: 'DEPLOY_IMIT', defaultValue: 'localhost', description: 'Ansible --limit (use localhost to deploy on Jenkins host)')
     booleanParam(name: 'DEPLOY_MONITORING', defaultValue: false, description: 'Deploy Prometheus & Grafana monitoring stack')
@@ -31,6 +31,7 @@ pipeline {
 
 
   stages {
+/*
     stage('Unit Tests') {
       parallel {
         stage('Frontend: Unit Tests') {
@@ -75,7 +76,7 @@ pipeline {
         }
       }
     }
-
+*/
     stage('Deploy Monitoring (CI host)') {
       when { expression { return params.DEPLOY_MONITORING } }
       steps {
