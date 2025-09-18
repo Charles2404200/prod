@@ -7,8 +7,6 @@ pipeline {
     }
   }
 
-  options { }
-
   parameters {
     string(name: 'GHCR_NAMESPACE', defaultValue: 'BennyBach1002', description: 'GitHub user/org (lowercase for Docker)')
     string(name: 'BRANCH_TO_BUILD', defaultValue: 'unit_testing', description: 'Git branch to build')
