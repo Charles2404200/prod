@@ -3,7 +3,7 @@ pipeline {
 
     parameters {
         string(name: 'GHCR_NAMESPACE',  defaultValue: 'apotato4325', description: 'GHCR namespace (user/org)')
-        string(name: 'BRANCH_TO_BUILD', defaultValue: 'docker',      description: 'Git branch to build')
+        string(name: 'BRANCH_TO_BUILD', defaultValue: 'db',      description: 'Git branch to build')
     }
 
     environment {
