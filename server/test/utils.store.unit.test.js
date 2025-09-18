@@ -1,26 +1,21 @@
 // prod/server/test/utils.store.unit.test.js
 
-// Import toàn bộ module 'store' để đảm bảo tính ổn định
 const store = require('../utils/store');
 
-// Mock the tax config để có một mức thuế cố định và dễ đoán cho các bài test
 jest.mock('../config/tax', () => ({
-  stateTaxRate: 10, // Sử dụng mức thuế 10% để dễ tính toán
+  stateTaxRate: 10, 
 }));
 
 describe('Store Utils', () => {
 
-  //--- Test suite cho hàm caculateItemsSalesTax ---
   describe('caculateItemsSalesTax', () => {
     
-    // BÀI TEST ĐÃ ĐƯỢC KHÔI PHỤC
     test('should return an empty array if no items are provided', () => {
       const items = [];
       const result = store.caculateItemsSalesTax(items);
       expect(result).toEqual([]);
     });
 
-    // BÀI TEST ĐÃ ĐƯỢC KHÔI PHỤC
     test('should calculate totalPrice correctly for a non-taxable item', () => {
       const items = [{ price: 100, quantity: 2, taxable: false }];
       const result = store.caculateItemsSalesTax(items);
@@ -37,7 +32,6 @@ describe('Store Utils', () => {
       expect(result[0].priceWithTax).toBe(2200.00);
     });
 
-    // BÀI TEST ĐÃ ĐƯỢC KHÔI PHỤC
     test('should correctly calculate totals for multiple items', () => {
       const items = [
         { price: 10, quantity: 2, taxable: false },
@@ -49,7 +43,6 @@ describe('Store Utils', () => {
       expect(result[1].totalPrice).toBe(50);
     });
 
-    // BÀI TEST ĐÃ ĐƯỢC KHÔI PHỤC
     test('should handle items with zero quantity or price', () => {
       const items = [
         { price: 100, quantity: 0, taxable: true },

@@ -16,7 +16,6 @@ const {
   disconnectMemoryMongo,
 } = require("./_mongo.memory.setup");
 
-// Mock các middleware
 jest.mock("../middleware/auth", () => jest.fn());
 jest.mock("../middleware/role", () => ({
   check: jest.fn(() => (req, res, next) => next()),

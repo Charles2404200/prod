@@ -14,7 +14,8 @@ pipeline {
     string(name: 'DEPLOY_IMIT', defaultValue: 'localhost', description: 'Ansible --limit (use localhost to deploy on Jenkins host)')
     booleanParam(name: 'DEPLOY_MONITORING', defaultValue: false, description: 'Deploy Prometheus & Grafana monitoring stack')
     string(name: 'PROM_HOST_PORT', defaultValue: '9091', description: 'Host port to expose Prometheus UI')
-    string(name: 'PUBLIC_HOST', defaultValue: '54.163.245.207', description: 'Public IP/DNS của Jenkins host để tạo link Prometheus/Grafana')
+    string(name: 'PUBLIC_HOST', defaultValue: '54.163.245.207', description: 'Public IP/DNS Jenkins host to create link Prometheus/Grafana')
+    booleanParam(name: 'RUN_ANSIBLE_DEPLOY', defaultValue: false, description: 'Run Ansible deployment stage?')
   }
 
   environment {
