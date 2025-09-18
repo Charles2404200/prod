@@ -304,36 +304,37 @@
 
 //DOCKER AND ANSIBLE INTEGRATION
 pipeline {
-   agent {
+  agent {
     docker {
       image 'cimg/node:20.14'
       reuseNode true
       args '-u 0:0 -v /var/run/docker.sock:/var/run/docker.sock -e HOME=.'
     }
-   }
+  }
+
   options { skipDefaultCheckout(true) }
 
-    parameters {
-        string(name: 'GHCR_NAMESPACE', defaultValue: 'apotato4325', description: 'GHCR namespace (user/org)')
-        string(name: 'BRANCH_TO_BUILD', defaultValue: 'docker', description: 'Git branch to build')
-        string(name: 'DEPLOY_LIMIT', defaultValue: 'localhost', description: 'Ansible --limit (use localhost to deploy on Jenkins host)')
-        booleanParam(name: 'DEPLOY_MONITORING', defaultValue: false, description: 'Deploy Prometheus & Grafana monitoring stack')
-        string(name: 'PROM_HOST_PORT', defaultValue: '9091', description: 'Host port to expose Prometheus UI')
-        string(name: 'PUBLIC_HOST', defaultValue: '54.163.245.207', description: 'Public IP/DNS của Jenkins host để tạo link Prometheus/Grafana')
-    }
+  parameters {
+    string(name: 'GHCR_NAMESPACE', defaultValue: 'BennyBach1002', description: 'GitHub user/org (lowercase for Docker)')
+    string(name: 'BRANCH_TO_BUILD', defaultValue: 'unit_testing', description: 'Git branch to build')
+    string(name: 'DEPLOY_IMIT', defaultValue: 'localhost', description: 'Ansible --limit (use localhost to deploy on Jenkins host)')
+    booleanParam(name: 'DEPLOY_MONITORING', defaultValue: false, description: 'Deploy Prometheus & Grafana monitoring stack')
+    string(name: 'PROM_HOST_PORT', defaultValue: '9091', description: 'Host port to expose Prometheus UI')
+    string(name: 'PUBLIC_HOST', defaultValue: '54.163.245.207', description: 'Public IP/DNS của Jenkins host để tạo link Prometheus/Grafana')
+  }
 
-    environment {
-        APP_NAME = 'rmit-store'
-        BACKEND_IMAGE  = "ghcr.io/${params.GHCR_NAMESPACE}/rmit-store-backend"
-        FRONTEND_IMAGE = "ghcr.io/${params.GHCR_NAMESPACE}/rmit-store-frontend"
-        DB_IMAGE       = "ghcr.io/${params.GHCR_NAMESPACE}/rmit-store-db"
-        DOCKER_EC2_IP  = '54.242.180.228'
-        SSH_CREDENTIAL_ID = 'long-docker-ec2-key'
-        GHCR_USER = 'apotato4325'
-        PLAYBOOK = '/home/ec2-user/prod/infra/ansible/site.yml'
-        INVENTORY = '/home/ec2-user/prod/infra/ansible/inventory.ini'
-        WS_DIR   = "ws-${env.JOB_NAME.replaceAll('[^A-Za-z0-9_.-]','_')}-${env.BUILD_NUMBER}"
-    }
+  environment {
+     APP_NAME = 'rmit-store'
+      BACKEND_IMAGE  = "ghcr.io/${params.GHCR_NAMESPACE}/rmit-store-backend"
+      FRONTEND_IMAGE = "ghcr.io/${params.GHCR_NAMESPACE}/rmit-store-frontend"
+      DB_IMAGE       = "ghcr.io/${params.GHCR_NAMESPACE}/rmit-store-db"
+      DOCKER_EC2_IP  = '54.242.180.228'
+      SSH_CREDENTIAL_ID = 'long-docker-ec2-key'
+      GHCR_USER = 'apotato4325'
+      PLAYBOOK = '/home/ec2-user/prod/infra/ansible/site.yml'
+      INVENTORY = '/home/ec2-user/prod/infra/ansible/inventory.ini'
+    WS_DIR   = "ws-${env.JOB_NAME.replaceAll('[^A-Za-z0-9_.-]','_')}-${env.BUILD_NUMBER}"
+  }
 
   stages {
     stage('Checkout into ws/') {
@@ -349,7 +350,8 @@ pipeline {
         sh 'ls -la "$WS_DIR" | head -n 30'
       }
     }
-        stage('Unit Tests') {
+
+    stage('Unit Tests') {
       parallel {
         stage('Frontend: Unit Tests') {
           steps {
@@ -470,6 +472,7 @@ stage('Deploy Monitoring (CI host)') {
     '''
       }
     }
+  /*
   
         stage('Build & Push Images') {
             steps {
@@ -566,6 +569,7 @@ stage('Deploy Monitoring (CI host)') {
                 }
             }
         }
+*/
     }
 
     post {
