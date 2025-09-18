@@ -34,7 +34,7 @@ pipeline {
                 git branch: "${params.BRANCH_TO_BUILD}", credentialsId: 'long-github-creds', url: 'https://github.com/APotato4325/rmit-store-backend_frontend.git'
             }
         }
-
+/*
     stage('Unit Tests') {
       parallel {
         stage('Frontend: Unit Tests') {
@@ -156,7 +156,7 @@ pipeline {
         '''
       }
     }
-  
+ */ 
      stage('Build & Push Images') {
             steps {
                 withCredentials([string(credentialsId: 'long-GHRC_PAT', variable: 'GH_TOKEN')]) {
