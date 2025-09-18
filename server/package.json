@@ -4,11 +4,12 @@
   "description": "RMIT Ecommerce Server",
   "scripts": {
     "dev": "nodemon",
-    "start": "cross-env NODE_ENV=production node index.js",
+    "start": "node index.js",
     "seed:db": "node utils/seed.js",
-    "test": "echo 'No server tests specified yet' && exit 0",
-    "test:unit": "echo 'Running unit tests...'",
-    "test:integration": "echo 'Running integration tests...'"
+    "test:unit": "jest --config jest.config.js --setupFiles ./test/setup.js --runInBand --testPathIgnorePatterns=./test/integration",
+    "test:integration": "jest --config jest.integration.config.js --runInBand",
+    "test": "jest --config jest.config.js --runInBand --forceExit",
+    "test:coverage": "jest --config jest.config.js --runInBand --coverage"
   },
   "dependencies": {
     "prom-client": "^14.0.1",

@@ -6,9 +6,9 @@
     "clean": "rimraf dist",
     "build": "npm run clean && cross-env NODE_ENV=production webpack --mode production --config webpack/webpack.prod.js",
     "dev": "cross-env NODE_ENV=development webpack-dev-server --config webpack/webpack.dev.js",
-    "test": "echo 'No server tests specified yet' && exit 0",
-    "test:unit": "echo 'Running unit tests...'",
-    "test:integration": "echo 'Running integration tests...'"
+    "test": "jest --config jest.config.js",
+    "test:e2e": "playwright test",
+    "test:all": "npm test && E2E_BASE_URL=http://localhost:3000 npm run test:e2e -- --headed"
   },
   "dependencies": {
     "@fontsource/poppins": "^4.5.9",
