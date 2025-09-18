@@ -398,7 +398,7 @@ pipeline {
         }
 
         //there is a fucking problem with the playbook bc if i delete it my docker builds normally
-
+    }
     post {
         success { echo "✅ ${APP_NAME} built, pushed, and deployed via Ansible on ${DOCKER_EC2_IP}" }
         failure { echo "❌ Deployment failed" }
