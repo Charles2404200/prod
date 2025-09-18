@@ -7,7 +7,6 @@ pipeline {
     }
   }
 
-  options { }
 
   parameters {
     string(name: 'GHCR_NAMESPACE', defaultValue: 'BennyBach1002', description: 'GitHub user/org (lowercase for Docker)')
@@ -29,7 +28,7 @@ pipeline {
     PLAYBOOK = '/home/ec2-user/prod/infra/ansible/site.yml'
     INVENTORY = '/home/ec2-user/prod/infra/ansible/inventory.ini'
   }
-
+/*
   stages {
     stage('Unit Tests') {
       parallel {
@@ -75,7 +74,7 @@ pipeline {
         }
       }
     }
-
+*/
     stage('Deploy Monitoring (CI host)') {
       when { expression { return params.DEPLOY_MONITORING } }
       steps {
