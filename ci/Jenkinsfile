@@ -34,7 +34,7 @@ pipeline {
                 git branch: "${params.BRANCH_TO_BUILD}", credentialsId: 'long-github-creds', url: 'https://github.com/APotato4325/rmit-store-backend_frontend.git'
             }
         }
-/*
+
     stage('Unit Tests') {
       parallel {
         stage('Frontend: Unit Tests') {
@@ -156,7 +156,7 @@ pipeline {
         '''
       }
     }
- */ 
+  
      stage('Build & Push Images') {
             steps {
                 withCredentials([string(credentialsId: 'long-GHRC_PAT', variable: 'GH_TOKEN')]) {
@@ -225,6 +225,7 @@ pipeline {
 
         //there is a fucking problem with the playbook bc if i delete it my docker builds normally
         stage('Deploy with Ansible on EC2') {
+            when { expression { params.RUN_ANSIBLE_DEPLOY } } 
             steps {
                 sshagent(credentials: [SSH_CREDENTIAL_ID]) {
                     withCredentials([string(credentialsId: 'long-GHRC_PAT', variable: 'GH_TOKEN')]) {
