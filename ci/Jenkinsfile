@@ -8,7 +8,6 @@ pipeline {
     }
   }
 
-
   // parameters {
   //   string(name: 'GHCR_NAMESPACE', defaultValue: 'apotato4325', description: 'GHCR namespace (user/org)')
   //   string(name: 'BRANCH_TO_BUILD', defaultValue: 'unit_testing', description: 'Git branch to build')
@@ -30,11 +29,11 @@ pipeline {
   //   PLAYBOOK = '/home/ec2-user/prod/infra/ansible/site.yml'
   //   INVENTORY = '/home/ec2-user/prod/infra/ansible/inventory.ini'
   // }
-   stages {
+  stages {
         stage('Checkout') {
-            steps {
-                git branch: "${params.BRANCH_TO_BUILD}", credentialsId: 'long-github-creds', url: 'https://github.com/APotato4325/rmit-store-backend_frontend.git'
-            }
+      steps {
+        git branch: "${params.BRANCH_TO_BUILD}", credentialsId: 'long-github-creds', url: 'https://github.com/APotato4325/rmit-store-backend_frontend.git'
+      }
         }
 
     // stage('Unit Tests') {
@@ -158,11 +157,11 @@ pipeline {
         '''
       }
     }
-  
-     stage('Build & Push Images') {
-            steps {
-                withCredentials([string(credentialsId: 'long-GHRC_PAT', variable: 'GH_TOKEN')]) {
-                    sh """
+
+    stage('Build & Push Images') {
+      steps {
+        withCredentials([string(credentialsId: 'long-GHRC_PAT', variable: 'GH_TOKEN')]) {
+          sh """
                         echo "$GH_TOKEN" | docker login ghcr.io -u ${GHCR_USER} --password-stdin
                         IMAGE_TAG=\$(git rev-parse --short HEAD)
 
@@ -185,23 +184,23 @@ pipeline {
                         docker push ${DB_IMAGE}:\$IMAGE_TAG
                         docker push ${DB_IMAGE}:latest
                     """
-                }
-            }
         }
+      }
+    }
 
         stage('Test SSH to EC2') {
-            steps {
-                sshagent(credentials: [SSH_CREDENTIAL_ID]) {
-                    sh "ssh -o StrictHostKeyChecking=no ec2-user@${DOCKER_EC2_IP} 'echo ✅ Connected via Jenkinscd por'"
-                }
-            }
+      steps {
+        sshagent(credentials: [SSH_CREDENTIAL_ID]) {
+          sh "ssh -o StrictHostKeyChecking=no ec2-user@${DOCKER_EC2_IP} 'echo ✅ Connected via Jenkinscd por'"
+        }
+      }
         }
 
         stage('Deploy to EC2 (Docker Swarm)') {
-            steps {
-                sshagent(credentials: [SSH_CREDENTIAL_ID]) {
-                    withCredentials([string(credentialsId: 'long-GHRC_PAT', variable: 'GH_TOKEN')]) {
-                        sh """
+      steps {
+        sshagent(credentials: [SSH_CREDENTIAL_ID]) {
+          withCredentials([string(credentialsId: 'long-GHRC_PAT', variable: 'GH_TOKEN')]) {
+            sh """
                             ssh -o StrictHostKeyChecking=no ec2-user@${DOCKER_EC2_IP} '
                                 echo "$GH_TOKEN" | docker login ghcr.io -u ${GHCR_USER} --password-stdin || true
                                 cd /home/ec2-user/prod/compose/staging || exit 1
@@ -220,18 +219,18 @@ pipeline {
                                 docker stack services mystack
                             '
                         """
-                    }
-                }
-            }
+          }
+        }
+      }
         }
 
         //there is a fucking problem with the playbook bc if i delete it my docker builds normally
         stage('Deploy with Ansible on EC2') {
-            when { expression { params.RUN_ANSIBLE_DEPLOY } } 
-            steps {
-                sshagent(credentials: [SSH_CREDENTIAL_ID]) {
-                    withCredentials([string(credentialsId: 'long-GHRC_PAT', variable: 'GH_TOKEN')]) {
-                        sh """
+      when { expression { params.RUN_ANSIBLE_DEPLOY } }
+      steps {
+        sshagent(credentials: [SSH_CREDENTIAL_ID]) {
+          withCredentials([string(credentialsId: 'long-GHRC_PAT', variable: 'GH_TOKEN')]) {
+            sh """
                             # Ensure GHCR login for pulling images
                             echo "$GH_TOKEN" | docker login ghcr.io -u $GHCR_USER --password-stdin || true
                             # Run Ansible playbook from the Jenkins workspace
@@ -250,14 +249,26 @@ pipeline {
                                 -e "ghcr_user=${GHCR_USER}" \
                                 -e "ghcr_token=${GH_TOKEN}"
                         """
-                    }
-                }
-            }
+          }
         }
-    }
+      }
+        }
+  }
 
   post {
     success { echo "✅ ${APP_NAME} built, pushed, and deployed via Ansible on ${DOCKER_EC2_IP}" }
-    failure { echo "❌ Deployment failed" }
+
+        // failure { echo "❌ Deployment failed" }
+        // This block only runs if the pipeline fails
+        failure {
+      emailext(
+                to: 'benbach2001@gmail.com, jackiefabln123@gmail.com',
+                subject: "Jenkins Pipeline Failed: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                body: """<p>The pipeline for **${env.JOB_NAME}** has failed.</p>
+                         <p>Build Status: **${currentBuild.result}**</p>
+                         <p>Check the build logs for more details:</p>
+                         <p>${env.BUILD_URL}/console</p>"""
+            )
+        }
   }
 }
