@@ -263,8 +263,8 @@ pipeline {
     failure {
       echo '❌ Deployment failed'
       emailext(
-        to: 'benbach2001@gmail.com, jackiefabln123@gmail.com',
-        subject: "Jenkins Pipeline Failed: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+        to: 'benbach2001@gmail.com',
+        subject: 'Jenkins Pipeline Failed:',
         body: """<p>The pipeline for **${env.JOB_NAME}** has failed.</p>
                  <p>Build Status: **${currentBuild.result}**</p>
                  <p>Check the build logs for more details:</p>
