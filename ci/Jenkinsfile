@@ -18,17 +18,17 @@ pipeline {
     booleanParam(name: 'RUN_ANSIBLE_DEPLOY', defaultValue: false, description: 'Run Ansible deployment stage?')
   }
 
-  // environment {
-  //   APP_NAME = 'rmit-store'
-  //   BACKEND_IMAGE  = "ghcr.io/${params.GHCR_NAMESPACE}/rmit-store-backend"
-  //   FRONTEND_IMAGE = "ghcr.io/${params.GHCR_NAMESPACE}/rmit-store-frontend"
-  //   DB_IMAGE       = "ghcr.io/${params.GHCR_NAMESPACE}/rmit-store-db"
-  //   DOCKER_EC2_IP  = '54.242.180.228'
-  //   SSH_CREDENTIAL_ID = 'long-docker-ec2-key'
-  //   GHCR_USER = 'apotato4325'
-  //   PLAYBOOK = '/home/ec2-user/prod/infra/ansible/site.yml'
-  //   INVENTORY = '/home/ec2-user/prod/infra/ansible/inventory.ini'
-  // }
+  environment {
+    APP_NAME = 'rmit-store'
+    BACKEND_IMAGE  = "ghcr.io/${params.GHCR_NAMESPACE}/rmit-store-backend"
+    FRONTEND_IMAGE = "ghcr.io/${params.GHCR_NAMESPACE}/rmit-store-frontend"
+    DB_IMAGE       = "ghcr.io/${params.GHCR_NAMESPACE}/rmit-store-db"
+    DOCKER_EC2_IP  = '54.242.180.228'
+    SSH_CREDENTIAL_ID = 'long-docker-ec2-key'
+    GHCR_USER = 'apotato4325'
+    PLAYBOOK = '/home/ec2-user/prod/infra/ansible/site.yml'
+    INVENTORY = '/home/ec2-user/prod/infra/ansible/inventory.ini'
+  }
   stages {
         stage('Checkout') {
       steps {
