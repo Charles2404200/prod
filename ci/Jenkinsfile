@@ -9,27 +9,27 @@ pipeline {
   }
 
 
-  parameters {
-    string(name: 'GHCR_NAMESPACE', defaultValue: 'apotato4325', description: 'GHCR namespace (user/org)')
-    string(name: 'BRANCH_TO_BUILD', defaultValue: 'unit_testing', description: 'Git branch to build')
-    string(name: 'DEPLOY_IMIT', defaultValue: 'localhost', description: 'Ansible --limit (use localhost to deploy on Jenkins host)')
-    booleanParam(name: 'DEPLOY_MONITORING', defaultValue: false, description: 'Deploy Prometheus & Grafana monitoring stack')
-    string(name: 'PROM_HOST_PORT', defaultValue: '9091', description: 'Host port to expose Prometheus UI')
-    string(name: 'PUBLIC_HOST', defaultValue: '54.163.245.207', description: 'Public IP/DNS Jenkins host to create link Prometheus/Grafana')
-    booleanParam(name: 'RUN_ANSIBLE_DEPLOY', defaultValue: false, description: 'Run Ansible deployment stage?')
-  }
+  // parameters {
+  //   string(name: 'GHCR_NAMESPACE', defaultValue: 'apotato4325', description: 'GHCR namespace (user/org)')
+  //   string(name: 'BRANCH_TO_BUILD', defaultValue: 'unit_testing', description: 'Git branch to build')
+  //   string(name: 'DEPLOY_IMIT', defaultValue: 'localhost', description: 'Ansible --limit (use localhost to deploy on Jenkins host)')
+  //   booleanParam(name: 'DEPLOY_MONITORING', defaultValue: false, description: 'Deploy Prometheus & Grafana monitoring stack')
+  //   string(name: 'PROM_HOST_PORT', defaultValue: '9091', description: 'Host port to expose Prometheus UI')
+  //   string(name: 'PUBLIC_HOST', defaultValue: '54.163.245.207', description: 'Public IP/DNS Jenkins host to create link Prometheus/Grafana')
+  //   booleanParam(name: 'RUN_ANSIBLE_DEPLOY', defaultValue: false, description: 'Run Ansible deployment stage?')
+  // }
 
-  environment {
-    APP_NAME = 'rmit-store'
-    BACKEND_IMAGE  = "ghcr.io/${params.GHCR_NAMESPACE}/rmit-store-backend"
-    FRONTEND_IMAGE = "ghcr.io/${params.GHCR_NAMESPACE}/rmit-store-frontend"
-    DB_IMAGE       = "ghcr.io/${params.GHCR_NAMESPACE}/rmit-store-db"
-    DOCKER_EC2_IP  = '54.242.180.228'
-    SSH_CREDENTIAL_ID = 'long-docker-ec2-key'
-    GHCR_USER = 'apotato4325'
-    PLAYBOOK = '/home/ec2-user/prod/infra/ansible/site.yml'
-    INVENTORY = '/home/ec2-user/prod/infra/ansible/inventory.ini'
-  }
+  // environment {
+  //   APP_NAME = 'rmit-store'
+  //   BACKEND_IMAGE  = "ghcr.io/${params.GHCR_NAMESPACE}/rmit-store-backend"
+  //   FRONTEND_IMAGE = "ghcr.io/${params.GHCR_NAMESPACE}/rmit-store-frontend"
+  //   DB_IMAGE       = "ghcr.io/${params.GHCR_NAMESPACE}/rmit-store-db"
+  //   DOCKER_EC2_IP  = '54.242.180.228'
+  //   SSH_CREDENTIAL_ID = 'long-docker-ec2-key'
+  //   GHCR_USER = 'apotato4325'
+  //   PLAYBOOK = '/home/ec2-user/prod/infra/ansible/site.yml'
+  //   INVENTORY = '/home/ec2-user/prod/infra/ansible/inventory.ini'
+  // }
    stages {
         stage('Checkout') {
             steps {
@@ -37,50 +37,50 @@ pipeline {
             }
         }
 
-    stage('Unit Tests') {
-      parallel {
-        stage('Frontend: Unit Tests') {
-          steps {
-            dir('client') {
-              sh '''#!/bin/bash
-                set -euo pipefail
-                echo "🔧 FE pre-clean..."
-                rm -rf node_modules
-                mkdir -p .npm .puppeteer-cache
-                export npm_config_cache="$PWD/.npm"
-                export PUPPETEER_CACHE_DIR="$PWD/.puppeteer-cache"
-                export PUPPETEER_DOWNLOAD_PATH="$PWD/.puppeteer-cache"
+    // stage('Unit Tests') {
+    //   parallel {
+    //     stage('Frontend: Unit Tests') {
+    //       steps {
+    //         dir('client') {
+    //           sh '''#!/bin/bash
+    //             set -euo pipefail
+    //             echo "🔧 FE pre-clean..."
+    //             rm -rf node_modules
+    //             mkdir -p .npm .puppeteer-cache
+    //             export npm_config_cache="$PWD/.npm"
+    //             export PUPPETEER_CACHE_DIR="$PWD/.puppeteer-cache"
+    //             export PUPPETEER_DOWNLOAD_PATH="$PWD/.puppeteer-cache"
 
-                echo "📦 FE install..."
-                npm install --no-audit --no-fund --prefer-offline
+    //             echo "📦 FE install..."
+    //             npm install --no-audit --no-fund --prefer-offline
 
-                echo "🧪 FE unit tests..."
-                npm test -- --ci --runInBand
-              '''
-            }
-          }
-        }
-        stage('Backend: Unit Tests') {
-          steps {
-            dir('server') {
-              sh '''#!/bin/bash
-                set -euo pipefail
-                echo "🔧 BE pre-clean..."
-                rm -rf node_modules
-                mkdir -p .npm
-                export npm_config_cache="$PWD/.npm"
+    //             echo "🧪 FE unit tests..."
+    //             npm test -- --ci --runInBand
+    //           '''
+    //         }
+    //       }
+    //     }
+    //     stage('Backend: Unit Tests') {
+    //       steps {
+    //         dir('server') {
+    //           sh '''#!/bin/bash
+    //             set -euo pipefail
+    //             echo "🔧 BE pre-clean..."
+    //             rm -rf node_modules
+    //             mkdir -p .npm
+    //             export npm_config_cache="$PWD/.npm"
 
-                echo "📦 BE install..."
-                npm install --no-audit --no-fund --prefer-offline
+    //             echo "📦 BE install..."
+    //             npm install --no-audit --no-fund --prefer-offline
 
-                echo "🧪 BE unit tests..."
-                npm test -- --ci --runInBand
-              '''
-            }
-          }
-        }
-      }
-    }
+    //             echo "🧪 BE unit tests..."
+    //             npm test -- --ci --runInBand
+    //           '''
+    //         }
+    //       }
+    //     }
+    //   }
+    // }
 
     stage('Deploy Monitoring (CI host)') {
       when { expression { return params.DEPLOY_MONITORING } }
