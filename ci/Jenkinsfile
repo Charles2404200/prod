@@ -256,19 +256,22 @@ pipeline {
   }
 
   post {
-    success { echo "✅ ${APP_NAME} built, pushed, and deployed via Ansible on ${DOCKER_EC2_IP}" }
+    success {
+        echo "✅ ${APP_NAME} built, pushed, and deployed via Ansible on ${DOCKER_EC2_IP}"
+    }
 
-        // failure { echo "❌ Deployment failed" }
-        // This block only runs if the pipeline fails
-        failure {
-      emailext(
-                to: 'benbach2001@gmail.com, jackiefabln123@gmail.com',
-                subject: "Jenkins Pipeline Failed: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
-                body: """<p>The pipeline for **${env.JOB_NAME}** has failed.</p>
-                         <p>Build Status: **${currentBuild.result}**</p>
-                         <p>Check the build logs for more details:</p>
-                         <p>${env.BUILD_URL}/console</p>"""
-            )
-        }
+    // This is the correct failure block
+    failure {
+        echo '❌ Deployment failed'
+        // Send email notification
+        emailext(
+            to: 'benbach2001@gmail.com, jackiefabln123@gmail.com',
+            subject: "Jenkins Pipeline Failed: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+            body: """<p>The pipeline for **${env.JOB_NAME}** has failed.</p>
+                     <p>Build Status: **${currentBuild.result}**</p>
+                     <p>Check the build logs for more details:</p>
+                     <p>${env.BUILD_URL}/console</p>"""
+        )
+    }
   }
 }
