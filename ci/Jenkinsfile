@@ -8,15 +8,15 @@ pipeline {
     }
   }
 
-  // parameters {
-  //   string(name: 'GHCR_NAMESPACE', defaultValue: 'apotato4325', description: 'GHCR namespace (user/org)')
-  //   string(name: 'BRANCH_TO_BUILD', defaultValue: 'unit_testing', description: 'Git branch to build')
-  //   string(name: 'DEPLOY_IMIT', defaultValue: 'localhost', description: 'Ansible --limit (use localhost to deploy on Jenkins host)')
-  //   booleanParam(name: 'DEPLOY_MONITORING', defaultValue: false, description: 'Deploy Prometheus & Grafana monitoring stack')
-  //   string(name: 'PROM_HOST_PORT', defaultValue: '9091', description: 'Host port to expose Prometheus UI')
-  //   string(name: 'PUBLIC_HOST', defaultValue: '54.163.245.207', description: 'Public IP/DNS Jenkins host to create link Prometheus/Grafana')
-  //   booleanParam(name: 'RUN_ANSIBLE_DEPLOY', defaultValue: false, description: 'Run Ansible deployment stage?')
-  // }
+  parameters {
+    string(name: 'GHCR_NAMESPACE', defaultValue: 'apotato4325', description: 'GHCR namespace (user/org)')
+    string(name: 'BRANCH_TO_BUILD', defaultValue: 'unit_testing', description: 'Git branch to build')
+    string(name: 'DEPLOY_IMIT', defaultValue: 'localhost', description: 'Ansible --limit (use localhost to deploy on Jenkins host)')
+    booleanParam(name: 'DEPLOY_MONITORING', defaultValue: false, description: 'Deploy Prometheus & Grafana monitoring stack')
+    string(name: 'PROM_HOST_PORT', defaultValue: '9091', description: 'Host port to expose Prometheus UI')
+    string(name: 'PUBLIC_HOST', defaultValue: '54.163.245.207', description: 'Public IP/DNS Jenkins host to create link Prometheus/Grafana')
+    booleanParam(name: 'RUN_ANSIBLE_DEPLOY', defaultValue: false, description: 'Run Ansible deployment stage?')
+  }
 
   // environment {
   //   APP_NAME = 'rmit-store'
@@ -257,21 +257,19 @@ pipeline {
 
   post {
     success {
-        echo "✅ ${APP_NAME} built, pushed, and deployed via Ansible on ${DOCKER_EC2_IP}"
+      echo "✅ ${APP_NAME} built, pushed, and deployed via Ansible on ${DOCKER_EC2_IP}"
     }
 
-    // This is the correct failure block
     failure {
-        echo '❌ Deployment failed'
-        // Send email notification
-        emailext(
-            to: 'benbach2001@gmail.com, jackiefabln123@gmail.com',
-            subject: "Jenkins Pipeline Failed: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
-            body: """<p>The pipeline for **${env.JOB_NAME}** has failed.</p>
-                     <p>Build Status: **${currentBuild.result}**</p>
-                     <p>Check the build logs for more details:</p>
-                     <p>${env.BUILD_URL}/console</p>"""
-        )
+      echo '❌ Deployment failed'
+      emailext(
+        to: 'benbach2001@gmail.com, jackiefabln123@gmail.com',
+        subject: "Jenkins Pipeline Failed: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+        body: """<p>The pipeline for **${env.JOB_NAME}** has failed.</p>
+                 <p>Build Status: **${currentBuild.result}**</p>
+                 <p>Check the build logs for more details:</p>
+                 <p>${env.BUILD_URL}/console</p>"""
+      )
     }
   }
 }
